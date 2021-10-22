@@ -118,7 +118,8 @@ mod sload_tests {
             gas_info: gas_info!(gas, WARM_STORAGE_READ_COST),
             depth: 1u8,
             pc: pc.inc_pre(),
-            gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc,
             bus_mapping_instance: vec![],
         };
 

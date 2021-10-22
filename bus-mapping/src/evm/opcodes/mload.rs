@@ -120,7 +120,8 @@ mod mload_tests {
             gas_info: gas_info!(gas, FASTEST),
             depth: 1u8,
             pc: pc.inc_pre(),
-            gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc,
             bus_mapping_instance: vec![],
         };
 
@@ -166,7 +167,8 @@ mod mload_tests {
             gas_info: gas_info!(gas, ZERO),
             depth: 1u8,
             pc: pc.inc_pre(),
-            gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc.inc_pre(),
+            // gc: ctx.gc,
             bus_mapping_instance: vec![],
         };
 

@@ -1,9 +1,7 @@
 // Doc this
 
 use super::OperationRef;
-use crate::evm::{
-    EvmWord, GasInfo, GlobalCounter, Memory, ProgramCounter, Stack, Storage,
-};
+use crate::evm::{EvmWord, GasInfo, Memory, ProgramCounter, Stack, Storage};
 use crate::{
     error::Error,
     evm::{opcodes::Opcode, OpcodeId},
@@ -30,7 +28,7 @@ pub struct ExecutionStep {
     pub(crate) gas_info: GasInfo,
     pub(crate) depth: u8,
     pub(crate) pc: ProgramCounter,
-    pub(crate) gc: GlobalCounter,
+    // pub(crate) gc: GlobalCounter,
     // Holds refs to the container with the related mem ops.
     pub(crate) bus_mapping_instance: Vec<OperationRef>,
 }
@@ -47,7 +45,7 @@ impl ExecutionStep {
         gas_info: GasInfo,
         depth: u8,
         pc: ProgramCounter,
-        gc: GlobalCounter,
+        // gc: GlobalCounter,
     ) -> Self {
         ExecutionStep {
             memory: Memory::from(memory),
@@ -57,7 +55,7 @@ impl ExecutionStep {
             gas_info,
             depth,
             pc,
-            gc,
+            // gc,
             bus_mapping_instance: Vec::new(),
         }
     }
@@ -97,17 +95,17 @@ impl ExecutionStep {
         self.pc
     }
 
-    /// Returns the [`GlobalCounter`] associated to this step's `Instuction`
-    /// execution.
-    pub const fn gc(&self) -> GlobalCounter {
-        self.gc
-    }
+    // /// Returns the [`GlobalCounter`] associated to this step's `Instuction`
+    // /// execution.
+    // pub const fn gc(&self) -> GlobalCounter {
+    //     self.gc
+    // }
 
-    /// Sets the global counter of the instruction execution to the one sent
-    /// in the params.
-    pub(crate) fn set_gc(&mut self, gc: impl Into<GlobalCounter>) {
-        self.gc = gc.into()
-    }
+    // /// Sets the global counter of the instruction execution to the one sent
+    // /// in the params.
+    // pub(crate) fn set_gc(&mut self, gc: impl Into<GlobalCounter>) {
+    //     self.gc = gc.into()
+    // }
 
     /// Returns a reference to the bus-mapping instance.
     pub const fn bus_mapping_instance(&self) -> &Vec<OperationRef> {

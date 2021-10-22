@@ -280,7 +280,7 @@ impl<F: FieldExt> ExecutionTrace<F> {
             .enumerate()
             .try_for_each::<_, Result<_, Error>>(|(idx, exec_step)| {
                 // Set the exec_step global counter
-                exec_step.set_gc(ctx.gc.inc_pre());
+                // exec_step.set_gc(ctx.gc);
                 // Add the `OpcodeId` associated ops and increment the gc counting
                 // all of them.
                 exec_step
