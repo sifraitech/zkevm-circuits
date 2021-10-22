@@ -13,6 +13,14 @@ pub enum EvmWordParsingError {
     Hex(hex::FromHexError),
 }
 
+impl Display for EvmWordParsingError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl StdError for EvmWordParsingError {}
+
 /// Error type for any BusMapping related failure.
 #[derive(Debug)]
 pub enum Error {
@@ -24,6 +32,8 @@ pub enum Error {
     StackAddressParsing,
     /// Error while parsing an `EvmWord`.
     EvmWordParsing(EvmWordParsingError),
+    /// Error while parsing an `EvmWord`.
+    EvmWordParsing2(uint::FromHexError),
     /// Error while trying to convert to an incorrect `OpcodeId`.
     InvalidOpConversion,
     /// Serde de/serialization error.
@@ -51,6 +61,12 @@ impl StdError for Error {}
 impl From<EvmWordParsingError> for Error {
     fn from(err: EvmWordParsingError) -> Self {
         Error::EvmWordParsing(err)
+    }
+}
+
+impl From<uint::FromHexError> for Error {
+    fn from(err: uint::FromHexError) -> Self {
+        Error::EvmWordParsing2(err)
     }
 }
 

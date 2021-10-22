@@ -3,6 +3,7 @@ use crate::gadget::{
     monotone::{MonotoneChip, MonotoneConfig},
     Variable,
 };
+use bus_mapping::eth_types::ToScalar;
 use bus_mapping::operation::{MemoryOp, Operation, StackOp, StorageOp};
 use halo2::{
     circuit::{Layouter, Region},
@@ -769,7 +770,7 @@ impl<
             let op = oper.op();
             let address = F::from_u64(usize::from(*op.address()) as u64);
             let gc = usize::from(oper.gc());
-            let val = F::from_bytes(&op.value().to_le_bytes()).unwrap();
+            let val = op.value().to_scalar().unwrap();
 
             let mut target = 1;
             if index > 0 {
@@ -821,17 +822,11 @@ impl<
         let mut offset = MEMORY_ROWS_MAX + STACK_ROWS_MAX;
         for (index, oper) in ops.iter().enumerate() {
             let op = oper.op();
-            let address =
-                F::from_bytes(&op.address().to_word().to_le_bytes()).unwrap();
+            let address = op.address().to_scalar().unwrap();
             let gc = usize::from(oper.gc());
-            let val = F::from_bytes(&op.value().to_le_bytes()).unwrap();
-            let val_prev =
-                F::from_bytes(&op.value_prev().to_le_bytes()).unwrap();
-
-            let mut array = [0u8; 32];
-            let bytes = op.key().to_le_bytes();
-            array[..bytes.len()].copy_from_slice(&bytes[0..bytes.len()]);
-            let storage_key = F::from_bytes(&array).unwrap();
+            let val = op.value().to_scalar().unwrap();
+            let val_prev = op.value_prev().to_scalar().unwrap();
+            let storage_key = op.key().to_scalar().unwrap();
 
             let mut target = 1;
             if index > 0 {
@@ -1159,11 +1154,10 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::Config;
-    use bus_mapping::evm::{
-        EthAddress, GlobalCounter, MemoryAddress, StackAddress,
-    };
-    use bus_mapping::{evm::EvmWord, BlockConstants, ExecutionTrace};
-    use std::str::FromStr;
+    use bus_mapping::address;
+    use bus_mapping::circuit_input_builder::{CircuitInputBuilder, MockBlock};
+    use bus_mapping::eth_types::{GethExecStep, Word};
+    use bus_mapping::evm::{GlobalCounter, MemoryAddress, StackAddress};
 
     use bus_mapping::operation::{MemoryOp, Operation, StackOp, StorageOp, RW};
     use halo2::{
@@ -1307,50 +1301,41 @@ mod tests {
 
         let stack_op_0 = Operation::new(
             GlobalCounter::from(17),
-            StackOp::new(RW::WRITE, StackAddress::from(1), EvmWord::from(32u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(1), Word::from(32u8)),
         );
         let stack_op_1 = Operation::new(
             GlobalCounter::from(87),
-            StackOp::new(RW::READ, StackAddress::from(1), EvmWord::from(32u8)),
+            StackOp::new(RW::READ, StackAddress::from(1), Word::from(32u8)),
         );
 
         let storage_op_0 = Operation::new(
             GlobalCounter::from(17),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_1 = Operation::new(
             GlobalCounter::from(18),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(32u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(32u8),
             ),
         );
         let storage_op_2 = Operation::new(
             GlobalCounter::from(19),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(32u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(32u8),
             ),
         );
 
@@ -1391,11 +1376,11 @@ mod tests {
 
         let stack_op_0 = Operation::new(
             GlobalCounter::from(17),
-            StackOp::new(RW::WRITE, StackAddress::from(1), EvmWord::from(32u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(1), Word::from(32u8)),
         );
         let stack_op_1 = Operation::new(
             GlobalCounter::from(87),
-            StackOp::new(RW::READ, StackAddress::from(1), EvmWord::from(32u8)),
+            StackOp::new(RW::READ, StackAddress::from(1), Word::from(32u8)),
         );
 
         const STACK_ROWS_MAX: usize = 2;
@@ -1432,14 +1417,14 @@ mod tests {
 
         let stack_op_0 = Operation::new(
             GlobalCounter::from(19),
-            StackOp::new(RW::WRITE, StackAddress::from(0), EvmWord::from(12u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(0), Word::from(12u8)),
         );
         let stack_op_1 = Operation::new(
             GlobalCounter::from(28),
             StackOp::new(
                 RW::READ,
                 StackAddress::from(0),
-                EvmWord::from(13u8),
+                Word::from(13u8),
                 // This should fail as it not the same value as in previous write op
             ),
         );
@@ -1472,20 +1457,17 @@ mod tests {
     fn first_write() {
         let stack_op_0 = Operation::new(
             GlobalCounter::from(28),
-            StackOp::new(RW::READ, StackAddress::from(0), EvmWord::from(13u8)),
+            StackOp::new(RW::READ, StackAddress::from(0), Word::from(13u8)),
         );
 
         let storage_op_0 = Operation::new(
             GlobalCounter::from(17),
             StorageOp::new(
                 RW::READ, // Fails because the first storage op needs to be write.
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000002"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_1 = Operation::new(
@@ -1493,13 +1475,10 @@ mod tests {
             StorageOp::new(
                 RW::READ, /* Fails because when storage key changes, the op
                            * needs to be write. */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
-                EvmWord::from(0x41u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000002"),
+                Word::from(0x41u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
 
@@ -1508,15 +1487,12 @@ mod tests {
             StorageOp::new(
                 RW::READ, /* Fails because when address changes, the op needs to
                            * be write. */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000003",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
+                address!("0x0000000000000000000000000000000000000003"),
+                Word::from(0x40u8),
                 /* Intentionally different storage key as the last one in the previous ops to
                 have two conditions met. */
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
 
@@ -1611,7 +1587,7 @@ mod tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(STACK_ADDRESS_MAX),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
         let stack_op_1 = Operation::new(
@@ -1619,7 +1595,7 @@ mod tests {
             StackOp::new(
                 RW::READ,
                 StackAddress::from(STACK_ADDRESS_MAX),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
 
@@ -1628,7 +1604,7 @@ mod tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(STACK_ADDRESS_MAX + 1),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
         let stack_op_3 = Operation::new(
@@ -1636,7 +1612,7 @@ mod tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(STACK_ADDRESS_MAX + 1),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
 
@@ -1698,7 +1674,7 @@ mod tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(STACK_ADDRESS_MAX + 1),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
         let stack_op_1 = Operation::new(
@@ -1706,7 +1682,7 @@ mod tests {
             StackOp::new(
                 RW::READ,
                 StackAddress::from(STACK_ADDRESS_MAX + 1),
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
 
@@ -1759,41 +1735,35 @@ mod tests {
 
         let stack_op_0 = Operation::new(
             GlobalCounter::from(228),
-            StackOp::new(RW::WRITE, StackAddress::from(1), EvmWord::from(12u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(1), Word::from(12u8)),
         );
         let stack_op_1 = Operation::new(
             GlobalCounter::from(217),
-            StackOp::new(RW::READ, StackAddress::from(1), EvmWord::from(12u8)),
+            StackOp::new(RW::READ, StackAddress::from(1), Word::from(12u8)),
         );
         let stack_op_2 = Operation::new(
             GlobalCounter::from(217),
-            StackOp::new(RW::READ, StackAddress::from(1), EvmWord::from(12u8)),
+            StackOp::new(RW::READ, StackAddress::from(1), Word::from(12u8)),
         );
 
         let storage_op_0 = Operation::new(
             GlobalCounter::from(301),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_1 = Operation::new(
             GlobalCounter::from(302),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_2 = Operation::new(
@@ -1803,13 +1773,10 @@ mod tests {
                 /*fails because the address and
                  * storage key are the same as in
                  * the previous row */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_3 = Operation::new(
@@ -1818,13 +1785,10 @@ mod tests {
                 RW::WRITE,
                 // Global counter goes down, but it doesn't fail because
                 // the storage key is not the same as in the previous row.
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x41u8),
-                EvmWord::from(32u8),
-                EvmWord::from(32u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x41u8),
+                Word::from(32u8),
+                Word::from(32u8),
             ),
         );
 
@@ -1835,13 +1799,10 @@ mod tests {
                 // Global counter goes down, but it doesn't fail because the
                 // address is not the same as in the previous row (while the
                 // storage key is).
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
-                EvmWord::from(0x41u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000002"),
+                Word::from(0x41u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
 
@@ -1893,11 +1854,11 @@ mod tests {
 
         let stack_op_0 = Operation::new(
             GlobalCounter::from(228),
-            StackOp::new(RW::WRITE, StackAddress::from(0), EvmWord::from(12u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(0), Word::from(12u8)),
         );
         let stack_op_1 = Operation::new(
             GlobalCounter::from(229),
-            StackOp::new(RW::WRITE, StackAddress::from(1), EvmWord::from(12u8)),
+            StackOp::new(RW::WRITE, StackAddress::from(1), Word::from(12u8)),
         );
         let stack_op_2 = Operation::new(
             GlobalCounter::from(230),
@@ -1906,7 +1867,7 @@ mod tests {
                 StackAddress::from(0), /* this fails because the
                                         * address is not
                                         * monotone */
-                EvmWord::from(12u8),
+                Word::from(12u8),
             ),
         );
 
@@ -1932,57 +1893,45 @@ mod tests {
             GlobalCounter::from(18),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8),
             ),
         );
         let storage_op_1 = Operation::new(
             GlobalCounter::from(19),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(33u8), /* Fails because it is READ op
-                                      * and not the same
-                                      * value as in the previous
-                                      * row. */
-                EvmWord::from(0u8),
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(33u8), /* Fails because it is READ op
+                                   * and not the same
+                                   * value as in the previous
+                                   * row. */
+                Word::from(0u8),
             ),
         );
         let storage_op_2 = Operation::new(
             GlobalCounter::from(20),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(0u8), /* Fails because not the same
-                                     * as value in the previous row - note: this is WRITE. */
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(0u8), /* Fails because not the same
+                                  * as value in the previous row - note: this is WRITE. */
             ),
         );
         let storage_op_3 = Operation::new(
             GlobalCounter::from(21),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
-                EvmWord::from(0x40u8),
-                EvmWord::from(32u8),
-                EvmWord::from(1u8), /* Fails because not the same
-                                     * as value_prev in the previous row - note: this is READ. */
+                address!("0x0000000000000000000000000000000000000001"),
+                Word::from(0x40u8),
+                Word::from(32u8),
+                Word::from(1u8), /* Fails because not the same
+                                  * as value_prev in the previous row - note: this is READ. */
             ),
         );
 
@@ -2072,25 +2021,17 @@ mod tests {
         ]
         "#;
 
-        let block_ctants = BlockConstants::new(
-            EvmWord::from(0u8),
-            EthAddress::zero(),
-            pasta_curves::Fp::zero(),
-            pasta_curves::Fp::zero(),
-            pasta_curves::Fp::zero(),
-            pasta_curves::Fp::zero(),
-            pasta_curves::Fp::zero(),
-            pasta_curves::Fp::zero(),
-        );
-
         // Here we have the ExecutionTrace completelly formed with all of the data to witness structured.
-        let obtained_exec_trace = ExecutionTrace::from_trace_bytes(
-            input_trace.as_bytes(),
-            block_ctants,
-        )
-        .expect("Error on trace generation");
+        let geth_steps: Vec<GethExecStep> =
+            serde_json::from_str(&input_trace).expect("Error on trace parsing");
+        let mock = MockBlock::new_single_tx_geth_steps(geth_steps);
+        let mut builder = CircuitInputBuilder::new(
+            mock.eth_block.clone(),
+            mock.block_ctants.clone(),
+        );
+        builder.handle_tx(&mock.eth_tx, &mock.geth_trace).unwrap();
 
-        let stack_ops = obtained_exec_trace.sorted_stack_ops();
+        let stack_ops = builder.block.container.sorted_stack();
 
         test_state_circuit!(
             14,
