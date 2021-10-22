@@ -7,7 +7,7 @@ pub mod storage;
 
 use crate::error::{EthAddressParsingError, EvmWordParsingError};
 use core::str::FromStr;
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use std::fmt;
 pub use {
     memory::{Memory, MemoryAddress},
@@ -134,6 +134,16 @@ impl Serialize for EvmWord {
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> Deserialize<'de> for EvmWord {
+    fn deserialize<D>(deserializer: D) -> Result<EvmWord, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        EvmWord::from_str(&s).map_err(de::Error::custom)
     }
 }
 

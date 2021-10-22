@@ -58,9 +58,37 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
             parsed_step.gas_cost,
             parsed_step.depth,
             parsed_step.pc,
-            0.into(),
+            // 0.into(),
         ))
     }
+}
+
+/// TODO
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[doc(hidden)]
+pub(crate) struct GethExecStep<'a> {
+    pub(crate) pc: ProgramCounter,
+    // pub(crate) op: OpcodeId,
+    pub(crate) op: &'a str,
+    pub(crate) gas: Gas,
+    #[serde(alias = "gasCost")]
+    pub(crate) gas_cost: GasCost,
+    pub(crate) depth: u8,
+    pub(crate) stack: Vec<EvmWord>,
+    pub(crate) memory: Option<Vec<&'a str>>,
+    pub(crate) storage: Option<HashMap<EvmWord, EvmWord>>,
+}
+
+/// TODO
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[doc(hidden)]
+pub(crate) struct GethExecTrace<'a> {
+    pub(crate) gas: Gas,
+    pub(crate) failed: bool,
+    #[serde(alias = "returnValue")]
+    pub(crate) return_value: &'a str,
+    #[serde(alias = "structLogs")]
+    pub(crate) struct_logs: Vec<GethExecStep<'a>>,
 }
 
 /// Helper structure whose only purpose is to serve as a De/Serialization
@@ -82,9 +110,56 @@ pub(crate) struct ParsedExecutionStep<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evm::{
-        opcodes::ids::OpcodeId, GlobalCounter, Memory, Stack, Storage,
-    };
+    use crate::evm::{opcodes::ids::OpcodeId, Memory, Stack, Storage};
+
+    #[test]
+    fn deserialize_geth_exec_trace() {
+        let trace_json = r#"
+  {
+    "gas": 26809,
+    "failed": false,
+    "returnValue": "",
+    "structLogs": [
+      {
+        "pc": 0,
+        "op": "PUSH1",
+        "gas": 5605,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": []
+      },
+      {
+        "pc": 2,
+        "op": "PUSH1",
+        "gas": 5602,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x80"
+        ]
+      },
+      {
+        "pc": 163,
+        "op": "SLOAD",
+        "gas": 5217,
+        "gasCost": 2100,
+        "depth": 1,
+        "stack": [
+          "0x1003e2d2",
+          "0x2a",
+          "0x0"
+        ],
+        "storage": {
+          "0000000000000000000000000000000000000000000000000000000000000000": "000000000000000000000000000000000000000000000000000000000000006f"
+        }
+      }
+    ]
+  }
+        "#;
+        let trace: GethExecTrace = serde_json::from_str(trace_json)
+            .expect("json-deserialize GethExecTrace");
+        println!("{:?}", trace);
+    }
 
     #[test]
     fn parse_single_step() {
@@ -132,7 +207,7 @@ mod tests {
                 gas_cost: GasCost::from(3u8),
                 depth: 1,
                 pc: ProgramCounter(5),
-                gc: GlobalCounter(0),
+                // gc: GlobalCounter(0),
                 bus_mapping_instance: vec![],
             }
         };
