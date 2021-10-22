@@ -13,6 +13,14 @@ pub enum EvmWordParsingError {
     Hex(hex::FromHexError),
 }
 
+impl Display for EvmWordParsingError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl StdError for EvmWordParsingError {}
+
 /// Error type for any BusMapping related failure.
 #[derive(Debug)]
 pub enum Error {
