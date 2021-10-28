@@ -58,37 +58,43 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
             parsed_step.gas_cost,
             parsed_step.depth,
             parsed_step.pc,
-            // 0.into(),
+            0.into(),
         ))
     }
 }
 
-/// TODO
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
-pub(crate) struct GethExecStep<'a> {
+pub(crate) struct GethExecStep {
     pub(crate) pc: ProgramCounter,
-    // pub(crate) op: OpcodeId,
-    pub(crate) op: &'a str,
+    pub(crate) op: OpcodeId,
     pub(crate) gas: Gas,
     #[serde(alias = "gasCost")]
     pub(crate) gas_cost: GasCost,
     pub(crate) depth: u8,
+    // pub(crate) error: &'a str,
+    // stack is in hex 0x prefixed
     pub(crate) stack: Vec<EvmWord>,
-    pub(crate) memory: Option<Vec<&'a str>>,
-    pub(crate) storage: Option<HashMap<EvmWord, EvmWord>>,
+    // memory is in chunks of 32 bytes, in hex
+    #[serde(default)]
+    pub(crate) memory: Vec<EvmWord>,
+    // storage is hex -> hex
+    #[serde(default)]
+    pub(crate) storage: HashMap<EvmWord, EvmWord>,
 }
 
-/// TODO
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
-pub(crate) struct GethExecTrace<'a> {
+pub(crate) struct GethExecTrace {
     pub(crate) gas: Gas,
     pub(crate) failed: bool,
-    #[serde(alias = "returnValue")]
-    pub(crate) return_value: &'a str,
+    // return_value is a hex encoded byte array
+    // #[serde(alias = "returnValue")]
+    // pub(crate) return_value: String,
     #[serde(alias = "structLogs")]
-    pub(crate) struct_logs: Vec<GethExecStep<'a>>,
+    pub(crate) struct_logs: Vec<GethExecStep>,
 }
 
 /// Helper structure whose only purpose is to serve as a De/Serialization
@@ -110,7 +116,29 @@ pub(crate) struct ParsedExecutionStep<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evm::{opcodes::ids::OpcodeId, Memory, Stack, Storage};
+    use crate::evm::{
+        opcodes::ids::OpcodeId, GlobalCounter, Memory, Stack, Storage,
+    };
+
+    macro_rules! word {
+        ($word_hex:expr) => {
+            EvmWord::from_str(&$word_hex).expect("invalid hex EvmWord")
+        };
+    }
+
+    macro_rules! word_map {
+      () => {
+        HashMap::new()
+      };
+      ($($key_hex:expr => $value_hex:expr),*) => {
+        {
+          use std::iter::FromIterator;
+          HashMap::from_iter([(
+                $(word!($key_hex), word!($value_hex)),*
+          )])
+        }
+      }
+    }
 
     #[test]
     fn deserialize_geth_exec_trace() {
@@ -123,20 +151,10 @@ mod tests {
       {
         "pc": 0,
         "op": "PUSH1",
-        "gas": 5605,
+        "gas": 22705,
         "gasCost": 3,
         "depth": 1,
         "stack": []
-      },
-      {
-        "pc": 2,
-        "op": "PUSH1",
-        "gas": 5602,
-        "gasCost": 3,
-        "depth": 1,
-        "stack": [
-          "0x80"
-        ]
       },
       {
         "pc": 163,
@@ -151,14 +169,55 @@ mod tests {
         ],
         "storage": {
           "0000000000000000000000000000000000000000000000000000000000000000": "000000000000000000000000000000000000000000000000000000000000006f"
-        }
+        },
+        "memory": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000000000000000000000000000000000000000000000000000000080"
+        ]
       }
     ]
   }
         "#;
         let trace: GethExecTrace = serde_json::from_str(trace_json)
             .expect("json-deserialize GethExecTrace");
-        println!("{:?}", trace);
+        assert_eq!(
+            trace,
+            GethExecTrace {
+                gas: 26809,
+                failed: false,
+                struct_logs: vec![
+                    GethExecStep {
+                        pc: ProgramCounter(0),
+                        op: OpcodeId::PUSH1,
+                        gas: 22705,
+                        gas_cost: GasCost(3),
+                        depth: 1,
+                        stack: vec![],
+                        storage: word_map!(),
+                        memory: vec![],
+                    },
+                    GethExecStep {
+                        pc: ProgramCounter(163),
+                        op: OpcodeId::SLOAD,
+                        gas: 5217,
+                        gas_cost: GasCost(2100),
+                        depth: 1,
+                        stack: vec![
+                            word!("0x1003e2d2"),
+                            word!("0x2a"),
+                            word!("0x0")
+                        ],
+                        storage: word_map!("0x0" => "0x6f"),
+                        memory: vec![
+                            word!("0x0"),
+                            word!("0x0"),
+                            word!("0x080")
+                        ],
+                    }
+                ],
+            }
+        );
     }
 
     #[test]
@@ -207,7 +266,7 @@ mod tests {
                 gas_cost: GasCost::from(3u8),
                 depth: 1,
                 pc: ProgramCounter(5),
-                // gc: GlobalCounter(0),
+                gc: GlobalCounter(0),
                 bus_mapping_instance: vec![],
             }
         };

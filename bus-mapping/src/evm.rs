@@ -273,7 +273,7 @@ impl EthAddress {
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize,
 )]
-pub struct GasCost(u64);
+pub struct GasCost(pub(crate) u64);
 
 impl GasCost {
     /// Constant cost for free step
