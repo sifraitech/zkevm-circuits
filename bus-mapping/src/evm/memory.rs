@@ -1,5 +1,5 @@
 //! Doc this
-use super::EvmWord;
+use crate::eth_types::Word;
 use crate::Error;
 use core::convert::TryFrom;
 use core::ops::{
@@ -60,18 +60,14 @@ impl MemoryAddress {
     }
 }
 
-impl TryFrom<EvmWord> for MemoryAddress {
+impl TryFrom<Word> for MemoryAddress {
     type Error = Error;
 
-    fn try_from(word: EvmWord) -> Result<Self, Self::Error> {
-        let (should_be_zeroes, usize_bytes) =
-            word.inner().split_at(32 - core::mem::size_of::<usize>());
-        if should_be_zeroes != [0u8; 32 - core::mem::size_of::<usize>()] {
+    fn try_from(word: Word) -> Result<Self, Self::Error> {
+        if word.bits() > core::mem::size_of::<usize>() * 8 {
             return Err(Error::WordToMemAddr);
         }
-        let mut arr = [0u8; core::mem::size_of::<usize>()];
-        arr.copy_from_slice(usize_bytes);
-        Ok(MemoryAddress(usize::from_be_bytes(arr)))
+        Ok(MemoryAddress(word.as_usize()))
     }
 }
 
@@ -201,7 +197,7 @@ impl Memory {
         Memory(words)
     }
 
-    /// Pushes a set of bytes or an [`EvmWord`] in the last `Memory` position.
+    /// Pushes a set of bytes or an [`Word`] in the last `Memory` position.
     pub fn push<T: AsRef<[u8]>>(&mut self, input: T) {
         self.0.extend(input.as_ref())
     }
@@ -211,18 +207,18 @@ impl Memory {
         self.0.len().into()
     }
 
-    /// Reads an entire [`EvmWord`] which starts at the provided [`MemoryAddress`] `addr` and
+    /// Reads an entire [`Word`] which starts at the provided [`MemoryAddress`] `addr` and
     /// finnishes at `addr + 32`.
-    pub fn read_word(&self, addr: MemoryAddress) -> Result<EvmWord, Error> {
-        // Ensure that the stack is big enough to have values in the range `[addr, addr+32)`.
+    pub fn read_word(&self, addr: MemoryAddress) -> Result<Word, Error> {
+        // Ensure that the memory is big enough to have values in the range `[addr, addr+32)`.
         if self.0.len() < addr.0 + 32 {
             return Err(Error::InvalidMemoryPointer);
         }
 
         // Now we know that the indexing will not panic.
-        Ok(EvmWord::from_be_bytes(
+        Ok(Word::from_big_endian(
             &self[addr..addr + MemoryAddress::from(32)],
-        )?)
+        ))
     }
 }
 
@@ -235,7 +231,7 @@ mod memory_tests {
     #[test]
     fn evmword_mem_addr_conversion() -> Result<(), Error> {
         let first_usize = 64536usize;
-        let word = EvmWord::from(first_usize);
+        let word = Word::from(first_usize);
         let addr = MemoryAddress::from(first_usize);
         let obtained_addr: MemoryAddress = word.try_into()?;
 
@@ -273,12 +269,9 @@ mod memory_tests {
     #[test]
     fn push_and_read_works() -> Result<(), Error> {
         let mem_map = Memory(
-            EvmWord::from(0u8)
-                .inner()
+            [Word::from(0u8), Word::from(0u8), Word::from(0x80u8)]
                 .iter()
-                .chain(EvmWord::from(0u8).inner())
-                .chain(EvmWord::from(0x80u8).inner())
-                .copied()
+                .flat_map(|w| w.to_be_bytes())
                 .collect(),
         );
 
@@ -287,7 +280,7 @@ mod memory_tests {
         // If we read a word at addr `0x40` we should get `0x80`.
         assert_eq!(
             mem_map.read_word(MemoryAddress::from(0x40))?,
-            EvmWord::from(0x80u8)
+            Word::from(0x80u8)
         );
 
         Ok(())

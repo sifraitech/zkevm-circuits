@@ -19,4 +19,5 @@ web3 = {version = "0.16", default-features = false}
 # ethereum-types = "0.10.0"
 fixed-hash = "0.7"
 uint = "0.9.1"
-
+subtle = "2.4.1"
+impl-serde = "0.3.1"

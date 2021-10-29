@@ -3,6 +3,7 @@ use crate::gadget::{
     monotone::{MonotoneChip, MonotoneConfig},
     Variable,
 };
+use bus_mapping::eth_types::ToField;
 use bus_mapping::operation::{MemoryOp, Operation, StackOp, StorageOp};
 use halo2::{
     circuit::{Layouter, Region},
@@ -821,8 +822,7 @@ impl<
         let mut offset = MEMORY_ROWS_MAX + STACK_ROWS_MAX;
         for (index, oper) in ops.iter().enumerate() {
             let op = oper.op();
-            let address =
-                F::from_bytes(&op.address().to_word().to_le_bytes()).unwrap();
+            let address = op.address().to_field().unwrap();
             let gc = usize::from(oper.gc());
             let val = F::from_bytes(&op.value().to_le_bytes()).unwrap();
             let val_prev =
@@ -1159,9 +1159,8 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::Config;
-    use bus_mapping::evm::{
-        EthAddress, GlobalCounter, MemoryAddress, StackAddress,
-    };
+    use bus_mapping::eth_types::Address;
+    use bus_mapping::evm::{GlobalCounter, MemoryAddress, StackAddress};
     use bus_mapping::{evm::EvmWord, BlockConstants, ExecutionTrace};
     use std::str::FromStr;
 
@@ -1318,10 +1317,8 @@ mod tests {
             GlobalCounter::from(17),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1331,10 +1328,8 @@ mod tests {
             GlobalCounter::from(18),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(32u8),
@@ -1344,10 +1339,8 @@ mod tests {
             GlobalCounter::from(19),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(32u8),
@@ -1479,10 +1472,8 @@ mod tests {
             GlobalCounter::from(17),
             StorageOp::new(
                 RW::READ, // Fails because the first storage op needs to be write.
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000002")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1493,10 +1484,8 @@ mod tests {
             StorageOp::new(
                 RW::READ, /* Fails because when storage key changes, the op
                            * needs to be write. */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000002")
+                    .unwrap(),
                 EvmWord::from(0x41u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1508,10 +1497,8 @@ mod tests {
             StorageOp::new(
                 RW::READ, /* Fails because when address changes, the op needs to
                            * be write. */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000003",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000003")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 /* Intentionally different storage key as the last one in the previous ops to
                 have two conditions met. */
@@ -1774,10 +1761,7 @@ mod tests {
             GlobalCounter::from(301),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                address!("0x0000000000000000000000000000000000000001"),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1787,10 +1771,8 @@ mod tests {
             GlobalCounter::from(302),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1803,10 +1785,8 @@ mod tests {
                 /*fails because the address and
                  * storage key are the same as in
                  * the previous row */
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1818,10 +1798,8 @@ mod tests {
                 RW::WRITE,
                 // Global counter goes down, but it doesn't fail because
                 // the storage key is not the same as in the previous row.
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x41u8),
                 EvmWord::from(32u8),
                 EvmWord::from(32u8),
@@ -1835,10 +1813,8 @@ mod tests {
                 // Global counter goes down, but it doesn't fail because the
                 // address is not the same as in the previous row (while the
                 // storage key is).
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000002",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000002")
+                    .unwrap(),
                 EvmWord::from(0x41u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1932,10 +1908,8 @@ mod tests {
             GlobalCounter::from(18),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8),
@@ -1945,10 +1919,8 @@ mod tests {
             GlobalCounter::from(19),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(33u8), /* Fails because it is READ op
                                       * and not the same
@@ -1961,10 +1933,8 @@ mod tests {
             GlobalCounter::from(20),
             StorageOp::new(
                 RW::WRITE,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(0u8), /* Fails because not the same
@@ -1975,10 +1945,8 @@ mod tests {
             GlobalCounter::from(21),
             StorageOp::new(
                 RW::READ,
-                EthAddress::from_str(
-                    "0x0000000000000000000000000000000000000001",
-                )
-                .unwrap(),
+                Address::from_str("0x0000000000000000000000000000000000000001")
+                    .unwrap(),
                 EvmWord::from(0x40u8),
                 EvmWord::from(32u8),
                 EvmWord::from(1u8), /* Fails because not the same
@@ -2074,7 +2042,7 @@ mod tests {
 
         let block_ctants = BlockConstants::new(
             EvmWord::from(0u8),
-            EthAddress::zero(),
+            Address::zero(),
             pasta_curves::Fp::zero(),
             pasta_curves::Fp::zero(),
             pasta_curves::Fp::zero(),

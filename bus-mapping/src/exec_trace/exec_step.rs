@@ -2,11 +2,11 @@
 
 use super::OperationRef;
 use crate::evm::{
-    EvmWord, Gas, GasCost, GlobalCounter, Memory, ProgramCounter, Stack,
-    Storage,
+    Gas, GasCost, GlobalCounter, Memory, ProgramCounter, Stack, Storage,
 };
 use crate::{
     error::Error,
+    eth_types::Word,
     evm::{opcodes::Opcode, OpcodeId},
     exec_trace::TraceContext,
 };
@@ -42,8 +42,8 @@ impl ExecutionStep {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         memory: Vec<u8>,
-        stack: Vec<EvmWord>,
-        storage: HashMap<EvmWord, EvmWord>,
+        stack: Vec<Word>,
+        storage: HashMap<Word, Word>,
         instruction: OpcodeId,
         gas: Gas,
         gas_cost: GasCost,

@@ -44,7 +44,9 @@ impl Opcode for Mload {
         let mut mem_read_addr: MemoryAddress = stack_value_read.try_into()?;
         let mem_read_value = next_steps[0].memory().read_word(mem_read_addr)?;
 
-        mem_read_value.inner().iter().for_each(|value_byte| {
+        let mut bytes = [0u8; 32];
+        mem_read_value.to_big_endian(&mut bytes);
+        bytes.iter().for_each(|value_byte| {
             ctx.push_op(
                 exec_step,
                 MemoryOp::new(RW::READ, mem_read_addr, *value_byte),
@@ -71,7 +73,8 @@ mod mload_tests {
     use super::*;
     use crate::{
         bytecode,
-        evm::{EvmWord, GasCost, OpcodeId, Stack, StackAddress, Storage},
+        eth_types::Word,
+        evm::{GasCost, OpcodeId, Stack, StackAddress, Storage},
         external_tracer, BlockConstants, ExecutionTrace,
     };
     use pasta_curves::pallas::Scalar;
@@ -94,10 +97,8 @@ mod mload_tests {
             [code.get_pos("start")..];
 
         // Obtained trace computation
-        let obtained_exec_trace = ExecutionTrace::<Scalar>::new(
-            obtained_steps.to_vec(),
-            block_ctants,
-        )?;
+        let obtained_exec_trace =
+            ExecutionTrace::new(obtained_steps.to_vec(), block_ctants)?;
 
         let mut ctx = TraceContext::new();
 
@@ -111,7 +112,7 @@ mod mload_tests {
         // Generate Step1 corresponding to PUSH1 40
         let mut step_1 = ExecutionStep {
             memory: mem_map.clone(),
-            stack: Stack(vec![EvmWord::from(0x40u8)]),
+            stack: Stack(vec![Word::from(0x40u8)]),
             storage: Storage::empty(),
             instruction: OpcodeId::MLOAD,
             gas: obtained_steps[0].gas(),
@@ -128,13 +129,13 @@ mod mload_tests {
             StackOp::new(
                 RW::READ,
                 StackAddress::from(1023),
-                EvmWord::from(0x40u8),
+                Word::from(0x40u8),
             ),
         );
 
         // Add the 32 MemoryOp generated from the Memory read at addr 0x40<->0x80 for each byte.
-        EvmWord::from(0x80u8)
-            .inner()
+        Word::from(0x80u8)
+            .to_be_bytes()
             .iter()
             .enumerate()
             .map(|(idx, byte)| (idx + 0x40, byte))
@@ -151,14 +152,14 @@ mod mload_tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(1023),
-                EvmWord::from(0x80u8),
+                Word::from(0x80u8),
             ),
         );
 
         // Generate Step1 corresponding to PUSH1 40
         let step_2 = ExecutionStep {
             memory: mem_map,
-            stack: Stack(vec![EvmWord::from(0x80u8)]),
+            stack: Stack(vec![Word::from(0x80u8)]),
             storage: Storage::empty(),
             instruction: OpcodeId::STOP,
             gas: obtained_steps[1].gas(),

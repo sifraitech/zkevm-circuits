@@ -1,6 +1,7 @@
 //! Common utility traits and functions.
 
-use crate::operation::EvmWord;
+/*
+use crate::eth_types::EvmWord;
 use pasta_curves::arithmetic::FieldExt;
 use serde::{ser, Serialize};
 
@@ -19,3 +20,4 @@ where
         })?
         .serialize(serializer)
 }
+*/

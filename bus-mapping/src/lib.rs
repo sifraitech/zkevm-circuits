@@ -45,7 +45,8 @@
 //! all of the Memory, Stack and Storage ops performed by the provided trace.
 //!
 //! ```rust
-//! use bus_mapping::{ExecutionTrace, ExecutionStep, BlockConstants, Error, evm::{EvmWord, EthAddress}};
+//! use bus_mapping::{ExecutionTrace, ExecutionStep, BlockConstants, Error};
+//! use bus_mapping::eth_types::{Address, Word, Hash};
 //! use pasta_curves::arithmetic::FieldExt;
 //!
 //! let input_trace = r#"
@@ -97,14 +98,14 @@
 //! "#;
 //!
 //! let block_ctants = BlockConstants::new(
-//!     EvmWord::from(0u8),
-//!     EthAddress::zero(),
-//!     pasta_curves::Fp::zero(),
-//!     pasta_curves::Fp::zero(),
-//!     pasta_curves::Fp::zero(),
-//!     pasta_curves::Fp::zero(),
-//!     pasta_curves::Fp::zero(),
-//!     pasta_curves::Fp::zero(),
+//!     Hash::zero(),
+//!     Address::zero(),
+//!     Word::zero(),
+//!     Word::zero(),
+//!     Word::zero(),
+//!     Word::zero(),
+//!     Word::zero(),
+//!     Word::zero(),
 //! );
 //!
 //! // Here we have the ExecutionTrace completelly formed with all of the data to witness structured.

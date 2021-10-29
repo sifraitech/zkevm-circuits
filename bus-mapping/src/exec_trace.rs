@@ -2,12 +2,12 @@
 //! execution traces.
 pub(crate) mod exec_step;
 pub(crate) mod parsing;
-use crate::evm::EvmWord;
+use crate::eth_types::Address;
+use crate::eth_types::{Hash, Word};
 use crate::operation::{
     container::OperationContainer, GlobalCounter, Op, Operation,
 };
-use crate::operation::{EthAddress, MemoryOp, StackOp, StorageOp, Target};
-use crate::util::serialize_field_ext;
+use crate::operation::{MemoryOp, StackOp, StorageOp, Target};
 use crate::Error;
 use core::ops::{Index, IndexMut};
 pub use exec_step::ExecutionStep;
@@ -20,54 +20,48 @@ use std::str::FromStr;
 /// Definition of all of the constants related to an Ethereum block and
 /// therefore, related with an [`ExecutionTrace`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct BlockConstants<F: FieldExt> {
-    hash: EvmWord, // Until we know how to deal with it
-    coinbase: EthAddress,
-    #[serde(serialize_with = "serialize_field_ext")]
-    timestamp: F,
-    #[serde(serialize_with = "serialize_field_ext")]
-    number: F,
-    #[serde(serialize_with = "serialize_field_ext")]
-    difficulty: F,
-    #[serde(serialize_with = "serialize_field_ext")]
-    gas_limit: F,
-    #[serde(serialize_with = "serialize_field_ext")]
-    chain_id: F,
-    #[serde(serialize_with = "serialize_field_ext")]
-    base_fee: F,
+pub struct BlockConstants {
+    hash: Hash, // Until we know how to deal with it
+    coinbase: Address,
+    timestamp: Word,
+    number: Word, // u64
+    difficulty: Word,
+    gas_limit: Word,
+    chain_id: Word,
+    base_fee: Word,
 }
 
-impl<F: FieldExt> Default for BlockConstants<F> {
+impl Default for BlockConstants {
     fn default() -> Self {
         BlockConstants {
-            hash: EvmWord([0u8; 32]),
-            coinbase: EthAddress::from_str(
+            hash: Hash::from([0u8; 32]),
+            coinbase: Address::from_str(
                 "0x00000000000000000000000000000000c014ba5e",
             )
             .unwrap(),
-            timestamp: F::from_u64(1633398551u64),
-            number: F::from_u64(123456u64),
-            difficulty: F::from_u64(0x200000u64),
-            gas_limit: F::from_u64(15_000_000u64),
-            chain_id: F::one(),
-            base_fee: F::from_u64(97u64),
+            timestamp: Word::from(1633398551u64),
+            number: Word::from(123456u64),
+            difficulty: Word::from(0x200000u64),
+            gas_limit: Word::from(15_000_000u64),
+            chain_id: Word::one(),
+            base_fee: Word::from(97u64),
         }
     }
 }
 
-impl<F: FieldExt> BlockConstants<F> {
+impl BlockConstants {
     #[allow(clippy::too_many_arguments)]
     /// Generates a new `BlockConstants` instance from it's fields.
     pub fn new(
-        hash: EvmWord,
-        coinbase: EthAddress,
-        timestamp: F,
-        number: F,
-        difficulty: F,
-        gas_limit: F,
-        chain_id: F,
-        base_fee: F,
-    ) -> BlockConstants<F> {
+        hash: Hash,
+        coinbase: Address,
+        timestamp: Word,
+        number: Word,
+        difficulty: Word,
+        gas_limit: Word,
+        chain_id: Word,
+        base_fee: Word,
+    ) -> BlockConstants {
         BlockConstants {
             hash,
             coinbase,
@@ -81,49 +75,49 @@ impl<F: FieldExt> BlockConstants<F> {
     }
     #[inline]
     /// Return the hash of a block.
-    pub fn hash(&self) -> &EvmWord {
+    pub fn hash(&self) -> &Hash {
         &self.hash
     }
 
     #[inline]
     /// Return the coinbase of a block.
-    pub fn coinbase(&self) -> &EthAddress {
+    pub fn coinbase(&self) -> &Address {
         &self.coinbase
     }
 
     #[inline]
     /// Return the timestamp of a block.
-    pub fn timestamp(&self) -> &F {
+    pub fn timestamp(&self) -> &Word {
         &self.timestamp
     }
 
     #[inline]
     /// Return the block number.
-    pub fn number(&self) -> &F {
+    pub fn number(&self) -> &Word {
         &self.number
     }
 
     #[inline]
     /// Return the difficulty of a block.
-    pub fn difficulty(&self) -> &F {
+    pub fn difficulty(&self) -> &Word {
         &self.difficulty
     }
 
     #[inline]
     /// Return the gas_limit of a block.
-    pub fn gas_limit(&self) -> &F {
+    pub fn gas_limit(&self) -> &Word {
         &self.gas_limit
     }
 
     #[inline]
     /// Return the chain ID associated to a block.
-    pub fn chain_id(&self) -> &F {
+    pub fn chain_id(&self) -> &Word {
         &self.chain_id
     }
 
     #[inline]
     /// Return the base fee of a block.
-    pub fn base_fee(&self) -> &F {
+    pub fn base_fee(&self) -> &Word {
         &self.base_fee
     }
 }
@@ -184,26 +178,26 @@ impl TraceContext {
 /// the State Proof witnesses are already generated on a structured manner and
 /// ready to be added into the State circuit.
 #[derive(Debug, Clone)]
-pub struct ExecutionTrace<F: FieldExt> {
+pub struct ExecutionTrace {
     pub(crate) steps: Vec<ExecutionStep>,
-    pub(crate) block_ctants: BlockConstants<F>,
+    pub(crate) block_ctants: BlockConstants,
     pub(crate) ctx: TraceContext,
 }
 
-impl<F: FieldExt> Index<usize> for ExecutionTrace<F> {
+impl Index<usize> for ExecutionTrace {
     type Output = ExecutionStep;
     fn index(&self, index: usize) -> &Self::Output {
         &self.steps[index]
     }
 }
 
-impl<F: FieldExt> IndexMut<usize> for ExecutionTrace<F> {
+impl IndexMut<usize> for ExecutionTrace {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.steps[index]
     }
 }
 
-impl<F: FieldExt> ExecutionTrace<F> {
+impl ExecutionTrace {
     /// Given an EVM trace in JSON format according to the specs and format
     /// shown in [zkevm-test-vectors crate](https://github.com/appliedzkp/zkevm-testing-vectors),
     /// generate the execution steps.
@@ -223,10 +217,10 @@ impl<F: FieldExt> ExecutionTrace<F> {
     /// [`ExecutionStep`]s filling them bus-mapping instances.
     pub fn from_trace_bytes<T: AsRef<[u8]>>(
         bytes: T,
-        block_ctants: BlockConstants<F>,
-    ) -> Result<ExecutionTrace<F>, Error> {
+        block_ctants: BlockConstants,
+    ) -> Result<ExecutionTrace, Error> {
         let trace_loaded = Self::load_trace(bytes)?;
-        ExecutionTrace::<F>::new(trace_loaded, block_ctants)
+        ExecutionTrace::new(trace_loaded, block_ctants)
     }
 
     /// Given a vector of [`ExecutionStep`]s and a [`BlockConstants`] instance,
@@ -239,7 +233,7 @@ impl<F: FieldExt> ExecutionTrace<F> {
     /// generated ops into the bus-mapping instances of each [`ExecutionStep`].
     pub(crate) fn new(
         steps: Vec<ExecutionStep>,
-        block_ctants: BlockConstants<F>,
+        block_ctants: BlockConstants,
     ) -> Result<Self, Error> {
         ExecutionTrace {
             steps,

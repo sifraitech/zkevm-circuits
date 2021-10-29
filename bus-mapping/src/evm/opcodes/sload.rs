@@ -1,7 +1,8 @@
 use super::Opcode;
 use crate::{
+    eth_types::Address,
     exec_trace::{ExecutionStep, TraceContext},
-    operation::{EthAddress, StackOp, StorageOp, RW},
+    operation::{StackOp, StorageOp, RW},
     Error,
 };
 
@@ -41,7 +42,7 @@ impl Opcode for Sload {
             exec_step,
             StorageOp::new(
                 RW::READ,
-                EthAddress([0u8; 20]), // TODO: Fill with the correct value
+                Address::from([0u8; 20]), // TODO: Fill with the correct value
                 stack_value_read,
                 storage_value_read,
                 storage_value_read,
@@ -63,9 +64,8 @@ mod sload_tests {
     use super::*;
     use crate::{
         bytecode,
-        evm::{
-            EvmWord, GasCost, Memory, OpcodeId, Stack, StackAddress, Storage,
-        },
+        eth_types::Word,
+        evm::{GasCost, Memory, OpcodeId, Stack, StackAddress, Storage},
         external_tracer, BlockConstants, ExecutionTrace,
     };
     use pasta_curves::pallas::Scalar;
@@ -94,10 +94,8 @@ mod sload_tests {
             [code.get_pos("start")..];
 
         // Obtained trace computation
-        let obtained_exec_trace = ExecutionTrace::<Scalar>::new(
-            obtained_steps.to_vec(),
-            block_ctants,
-        )?;
+        let obtained_exec_trace =
+            ExecutionTrace::new(obtained_steps.to_vec(), block_ctants)?;
 
         let mut ctx = TraceContext::new();
 
@@ -108,10 +106,10 @@ mod sload_tests {
         // Generate Step1 corresponding to SLOAD
         let mut step_1 = ExecutionStep {
             memory: Memory::empty(),
-            stack: Stack(vec![EvmWord::from(0x0u32)]),
+            stack: Stack(vec![Word::from(0x0u32)]),
             storage: Storage::new(HashMap::from_iter([(
-                EvmWord::from(0x0u32),
-                EvmWord::from(0x6fu32),
+                Word::from(0x0u32),
+                Word::from(0x6fu32),
             )])),
             instruction: OpcodeId::SLOAD,
             gas,
@@ -128,7 +126,7 @@ mod sload_tests {
             StackOp::new(
                 RW::READ,
                 StackAddress::from(1023),
-                EvmWord::from(0x0u32),
+                Word::from(0x0u32),
             ),
         );
         // Add StorageOp associated to the storage read.
@@ -136,10 +134,10 @@ mod sload_tests {
             &mut step_1,
             StorageOp::new(
                 RW::READ,
-                EthAddress([0u8; 20]), // TODO: Fill with the correct value
-                EvmWord::from(0x0u32),
-                EvmWord::from(0x6fu32),
-                EvmWord::from(0x6fu32),
+                Address::from([0u8; 20]), // TODO: Fill with the correct value
+                Word::from(0x0u32),
+                Word::from(0x6fu32),
+                Word::from(0x6fu32),
             ),
         );
         // Add StackOp associated to the stack push.
@@ -148,7 +146,7 @@ mod sload_tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(1023),
-                EvmWord::from(0x6fu32),
+                Word::from(0x6fu32),
             ),
         );
 

@@ -93,6 +93,7 @@ impl GlobalCounter {
     }
 }
 
+/*
 /// Representation of an EVM word which is basically a 32-byte word.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct EvmWord(pub(crate) [u8; 32]);
@@ -203,7 +204,9 @@ impl EvmWord {
         hex::encode(self.to_be_bytes())
     }
 }
+*/
 
+/*
 /// Representation of an Ethereum Address which is basically a 20-byte array.
 #[derive(Debug, Eq, PartialEq, Clone, Copy, PartialOrd, Ord)]
 pub struct EthAddress(pub(crate) [u8; 20]);
@@ -266,6 +269,7 @@ impl EthAddress {
         EvmWord(inner)
     }
 }
+*/
 
 /// Defines the gas left to perate in a [`ExecutionStep`](crate::exec_trace::ExecutionStep).
 #[derive(
@@ -332,6 +336,7 @@ impl From<u64> for GasCost {
 #[cfg(test)]
 mod evm_tests {
     use super::*;
+    use crate::eth_types::Word;
     use crate::Error;
 
     #[test]
@@ -339,14 +344,15 @@ mod evm_tests {
         let first_usize = 64536usize;
         // Parsing on both ways works.
         assert_eq!(
-            EvmWord::from_le_bytes(&first_usize.to_le_bytes())?,
-            EvmWord::from_be_bytes(&first_usize.to_be_bytes())?
+            Word::from_little_endian(&first_usize.to_le_bytes()),
+            Word::from_big_endian(&first_usize.to_be_bytes())
         );
-        let addr = EvmWord::from_le_bytes(&first_usize.to_le_bytes())?;
-        assert_eq!(addr, EvmWord::from(first_usize));
+        let addr = Word::from_little_endian(&first_usize.to_le_bytes());
+        assert_eq!(addr, Word::from(first_usize));
 
         // Little endian export
-        let le_obtained_usize = addr.to_le_bytes();
+        let mut le_obtained_usize = [0u8; 32];
+        addr.to_little_endian(&mut le_obtained_usize);
         let mut le_array = [0u8; 8];
         le_array.copy_from_slice(&le_obtained_usize[0..8]);
 
@@ -366,13 +372,14 @@ mod evm_tests {
         let word_str =
             "000000000000000000000000000000000000000000000000000c849c24f39248";
 
-        let word_from_u128 = EvmWord::from(3523505890234952u128);
-        let word_from_str = EvmWord::from_str(word_str)?;
+        let word_from_u128 = Word::from(3523505890234952u128);
+        let word_from_str = Word::from_str(word_str)?;
 
         assert_eq!(word_from_u128, word_from_str);
         Ok(())
     }
 
+    /*
     #[test]
     fn ethaddress() {
         // Test from_str
@@ -421,4 +428,5 @@ mod evm_tests {
             EvmWord::from(1u32),
         )
     }
+    */
 }

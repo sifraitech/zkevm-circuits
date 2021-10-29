@@ -47,7 +47,8 @@ mod push_tests {
     use super::*;
     use crate::{
         bytecode,
-        evm::{EvmWord, GasCost, OpcodeId, Stack, StackAddress, Storage},
+        eth_types::Word,
+        evm::{GasCost, OpcodeId, Stack, StackAddress, Storage},
         external_tracer, BlockConstants, ExecutionTrace,
     };
     use pasta_curves::pallas::Scalar;
@@ -67,10 +68,8 @@ mod push_tests {
             [code.get_pos("start")..];
 
         // Obtained trace computation
-        let obtained_exec_trace = ExecutionTrace::<Scalar>::new(
-            obtained_steps.to_vec(),
-            block_ctants,
-        )?;
+        let obtained_exec_trace =
+            ExecutionTrace::new(obtained_steps.to_vec(), block_ctants)?;
 
         let mut ctx = TraceContext::new();
 
@@ -102,7 +101,7 @@ mod push_tests {
             StackOp::new(
                 RW::WRITE,
                 StackAddress::from(1023),
-                EvmWord::from(0x80u8),
+                Word::from(0x80u8),
             ),
         );
 

@@ -1,6 +1,7 @@
 //! Doc this
 
-use crate::evm::{EvmWord, Gas, GasCost, ProgramCounter};
+use crate::eth_types::Word;
+use crate::evm::{Gas, GasCost, ProgramCounter};
 use crate::ExecutionStep;
 use crate::{
     error::{Error, EvmWordParsingError},
@@ -22,30 +23,29 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
             .as_ref()
             .unwrap_or(&Vec::new())
             .iter()
-            .map(|word| EvmWord::from_str(word))
-            .collect::<Result<Vec<_>, EvmWordParsingError>>()?
+            .map(|word| Word::from_str(word))
+            .collect::<Result<Vec<_>, uint::FromHexError>>()?
             .iter()
-            .flat_map(|word| word.inner())
-            .copied()
+            .flat_map(|word| word.to_be_bytes())
             .collect();
 
         // Stack part
-        let stack: Vec<EvmWord> = parsed_step
+        let stack: Vec<Word> = parsed_step
             .stack
             .iter()
-            .map(|word| EvmWord::from_str(word))
+            .map(|word| Word::from_str(word))
             .collect::<Result<_, _>>()?;
 
         // Storage part
-        let storage: HashMap<EvmWord, EvmWord> = parsed_step
+        let storage: HashMap<Word, Word> = parsed_step
             .storage
             .as_ref()
             .unwrap_or(&HashMap::new())
             .iter()
-            .map(|(key, value)| -> Result<_, EvmWordParsingError> {
-                Ok((EvmWord::from_str(key)?, EvmWord::from_str(value)?))
+            .map(|(key, value)| -> Result<_, Self::Error> {
+                Ok((Word::from_str(key)?, Word::from_str(value)?))
             })
-            .collect::<Result<HashMap<EvmWord, EvmWord>, _>>()?;
+            .collect::<Result<HashMap<Word, Word>, _>>()?;
 
         Ok(ExecutionStep::new(
             mem_map,
@@ -82,13 +82,13 @@ pub struct GethExecStep {
     pub depth: u8,
     // pub(crate) error: &'a str,
     // stack is in hex 0x prefixed
-    pub stack: Vec<EvmWord>,
+    pub stack: Vec<Word>,
     // memory is in chunks of 32 bytes, in hex
     #[serde(default)]
-    pub memory: Vec<EvmWord>,
+    pub memory: Vec<Word>,
     // storage is hex -> hex
     #[serde(default)]
-    pub storage: HashMap<EvmWord, EvmWord>,
+    pub storage: HashMap<Word, Word>,
 }
 
 /// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
@@ -129,7 +129,7 @@ mod tests {
 
     macro_rules! word {
         ($word_hex:expr) => {
-            EvmWord::from_str(&$word_hex).expect("invalid hex EvmWord")
+            Word::from_str(&$word_hex).expect("invalid hex Word")
         };
     }
 
@@ -255,18 +255,15 @@ mod tests {
 
         let expected_step = {
             let mem_map = Memory(
-                EvmWord::from(0u8)
-                    .inner()
+                [Word::from(0u8), Word::from(0u8), Word::from(0x80u8)]
                     .iter()
-                    .chain(EvmWord::from(0u8).inner())
-                    .chain(EvmWord::from(0x80u8).inner())
-                    .copied()
+                    .flat_map(|w| w.to_be_bytes())
                     .collect(),
             );
 
             ExecutionStep {
                 memory: mem_map,
-                stack: Stack(vec![EvmWord::from(0x40u8)]),
+                stack: Stack(vec![Word::from(0x40u8)]),
                 storage: Storage::empty(),
                 instruction: OpcodeId::JUMPDEST,
                 gas: Gas(82),

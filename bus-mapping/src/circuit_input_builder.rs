@@ -1,8 +1,9 @@
 #![allow(missing_docs)]
 
+use crate::eth_types::Address;
 use crate::evm::GlobalCounter;
 use crate::exec_trace::parsing::{GethExecStep, GethExecTrace};
-use crate::operation::{container::OperationContainer, EthAddress};
+use crate::operation::container::OperationContainer;
 use crate::{BlockConstants, Error};
 use core::fmt::Debug;
 use pasta_curves::arithmetic::FieldExt;
@@ -33,14 +34,14 @@ impl ExecutionStep {
 }
 
 #[derive(Debug)]
-pub struct Block<F: FieldExt> {
-    constants: BlockConstants<F>,
+pub struct Block {
+    constants: BlockConstants,
     ctx: BlockContext,
     txs: Vec<Transaction>,
 }
 
-impl<F: FieldExt> Block<F> {
-    pub fn new(geth_block: &GethBlock, constants: BlockConstants<F>) -> Self {
+impl Block {
+    pub fn new(geth_block: &GethBlock, constants: BlockConstants) -> Self {
         Self {
             constants,
             ctx: BlockContext::new(),
@@ -66,13 +67,13 @@ impl Transaction {
 
 #[derive(Debug)]
 pub struct TransactionContext {
-    address: EthAddress,
+    address: Address,
 }
 
 impl TransactionContext {
     pub fn new(tx: &GethTransaction) -> Self {
         Self {
-            address: EthAddress([0; 20]),
+            address: Address::from([0; 20]),
         }
     }
 }
@@ -98,12 +99,12 @@ pub struct Context<'a> {
 }
 
 #[derive(Debug)]
-pub struct CircuitInputBuilder<F: FieldExt + Debug> {
-    block: Block<F>,
+pub struct CircuitInputBuilder {
+    block: Block,
 }
 
-impl<F: FieldExt> CircuitInputBuilder<F> {
-    pub fn new(geth_block: GethBlock, constants: BlockConstants<F>) -> Self {
+impl CircuitInputBuilder {
+    pub fn new(geth_block: GethBlock, constants: BlockConstants) -> Self {
         Self {
             block: Block::new(&geth_block, constants),
         }

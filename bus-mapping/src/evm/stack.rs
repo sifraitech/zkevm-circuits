@@ -1,5 +1,5 @@
 //! Doc this
-use crate::evm::EvmWord;
+use crate::eth_types::Word;
 use crate::Error;
 use core::str::FromStr;
 
@@ -44,9 +44,9 @@ impl FromStr for StackAddress {
 /// Represents a snapshot of the EVM stack state at a certain
 /// execution step height.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Stack(pub(crate) Vec<EvmWord>);
+pub struct Stack(pub(crate) Vec<Word>);
 
-impl<T: Into<Vec<EvmWord>>> From<T> for Stack {
+impl<T: Into<Vec<Word>>> From<T> for Stack {
     fn from(words: T) -> Self {
         Stack(words.into())
     }
@@ -58,18 +58,18 @@ impl Stack {
         Stack(Vec::new())
     }
 
-    /// Generate an new instance of EVM stack given a `Vec<EvmWord>`.
+    /// Generate an new instance of EVM stack given a `Vec<Word>`.
     pub const fn new() -> Stack {
         Stack(vec![])
     }
 
     /// Generates a `Stack` instance from the given slice.
-    pub fn from_slice(words: &[EvmWord]) -> Self {
+    pub fn from_slice(words: &[Word]) -> Self {
         Stack(words.into())
     }
 
     /// Generates a `Stack` instance from the given vec.
-    pub const fn from_vec(words: Vec<EvmWord>) -> Self {
+    pub const fn from_vec(words: Vec<Word>) -> Self {
         Stack(words)
     }
 
@@ -85,8 +85,8 @@ impl Stack {
         StackAddress::from(1024 - self.0.len())
     }
 
-    /// Returns the last [`EvmWord`] allocated in the `Stack`.
-    pub fn last(&self) -> Option<&EvmWord> {
+    /// Returns the last [`Word`] allocated in the `Stack`.
+    pub fn last(&self) -> Option<&Word> {
         self.0.last()
     }
 }
