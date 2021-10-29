@@ -203,8 +203,10 @@ pub mod external_tracer;
 pub mod operation;
 #[macro_use]
 pub mod bytecode;
+pub mod circuit_input_builder;
+pub mod eth_types;
 pub mod util;
 pub use error::Error;
 pub use exec_trace::{BlockConstants, ExecutionStep, ExecutionTrace};
-/// Gas is exported as a type alias for u64
-pub type Gas = u64;
+// /// Gas is exported as a type alias for u64
+// pub type Gas = u64;

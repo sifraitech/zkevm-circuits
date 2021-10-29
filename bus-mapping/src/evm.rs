@@ -267,9 +267,14 @@ impl EthAddress {
     }
 }
 
+/// Defines the gas left to perate in a [`ExecutionStep`](crate::exec_trace::ExecutionStep).
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub struct Gas(pub(crate) u64);
+
 /// Defines the gas consumed by an
-/// [`ExecutionStep`](crate::exec_trace::ExecutionStep) as well as the gas left
-/// to operate.
+/// [`ExecutionStep`](crate::exec_trace::ExecutionStep).
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize,
 )]

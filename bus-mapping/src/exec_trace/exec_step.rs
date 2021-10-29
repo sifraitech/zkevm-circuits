@@ -2,9 +2,9 @@
 
 use super::OperationRef;
 use crate::evm::{
-    EvmWord, GasCost, GlobalCounter, Memory, ProgramCounter, Stack, Storage,
+    EvmWord, Gas, GasCost, GlobalCounter, Memory, ProgramCounter, Stack,
+    Storage,
 };
-use crate::Gas;
 use crate::{
     error::Error,
     evm::{opcodes::Opcode, OpcodeId},

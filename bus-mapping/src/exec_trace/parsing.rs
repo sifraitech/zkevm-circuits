@@ -1,8 +1,7 @@
 //! Doc this
 
-use crate::evm::{EvmWord, GasCost, ProgramCounter};
+use crate::evm::{EvmWord, Gas, GasCost, ProgramCounter};
 use crate::ExecutionStep;
-use crate::Gas;
 use crate::{
     error::{Error, EvmWordParsingError},
     evm::OpcodeId,
@@ -63,38 +62,46 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[doc(hidden)]
+pub(crate) struct GethBlock {}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[doc(hidden)]
+pub(crate) struct GethTransaction {}
+
 /// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
-pub(crate) struct GethExecStep {
-    pub(crate) pc: ProgramCounter,
-    pub(crate) op: OpcodeId,
-    pub(crate) gas: Gas,
+pub struct GethExecStep {
+    pub pc: ProgramCounter,
+    pub op: OpcodeId,
+    pub gas: Gas,
     #[serde(alias = "gasCost")]
-    pub(crate) gas_cost: GasCost,
-    pub(crate) depth: u8,
+    pub gas_cost: GasCost,
+    pub depth: u8,
     // pub(crate) error: &'a str,
     // stack is in hex 0x prefixed
-    pub(crate) stack: Vec<EvmWord>,
+    pub stack: Vec<EvmWord>,
     // memory is in chunks of 32 bytes, in hex
     #[serde(default)]
-    pub(crate) memory: Vec<EvmWord>,
+    pub memory: Vec<EvmWord>,
     // storage is hex -> hex
     #[serde(default)]
-    pub(crate) storage: HashMap<EvmWord, EvmWord>,
+    pub storage: HashMap<EvmWord, EvmWord>,
 }
 
 /// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
-pub(crate) struct GethExecTrace {
-    pub(crate) gas: Gas,
-    pub(crate) failed: bool,
+pub struct GethExecTrace {
+    pub gas: Gas,
+    pub failed: bool,
     // return_value is a hex encoded byte array
     // #[serde(alias = "returnValue")]
     // pub(crate) return_value: String,
     #[serde(alias = "structLogs")]
-    pub(crate) struct_logs: Vec<GethExecStep>,
+    pub struct_logs: Vec<GethExecStep>,
 }
 
 /// Helper structure whose only purpose is to serve as a De/Serialization
@@ -184,13 +191,13 @@ mod tests {
         assert_eq!(
             trace,
             GethExecTrace {
-                gas: 26809,
+                gas: Gas(26809),
                 failed: false,
                 struct_logs: vec![
                     GethExecStep {
                         pc: ProgramCounter(0),
                         op: OpcodeId::PUSH1,
-                        gas: 22705,
+                        gas: Gas(22705),
                         gas_cost: GasCost(3),
                         depth: 1,
                         stack: vec![],
@@ -200,7 +207,7 @@ mod tests {
                     GethExecStep {
                         pc: ProgramCounter(163),
                         op: OpcodeId::SLOAD,
-                        gas: 5217,
+                        gas: Gas(5217),
                         gas_cost: GasCost(2100),
                         depth: 1,
                         stack: vec![
@@ -262,8 +269,8 @@ mod tests {
                 stack: Stack(vec![EvmWord::from(0x40u8)]),
                 storage: Storage::empty(),
                 instruction: OpcodeId::JUMPDEST,
-                gas: 82,
-                gas_cost: GasCost::from(3u8),
+                gas: Gas(82),
+                gas_cost: GasCost(3),
                 depth: 1,
                 pc: ProgramCounter(5),
                 gc: GlobalCounter(0),
