@@ -1,3 +1,4 @@
+/*
 use super::Opcode;
 use crate::circuit_input_builder::CircuitInputStateRef;
 use crate::eth_types::GethExecStep;
@@ -183,3 +184,4 @@ mod mload_tests {
         Ok(())
     }
 }
+*/

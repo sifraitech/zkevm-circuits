@@ -3,7 +3,7 @@ use crate::circuit_input_builder::CircuitInputStateRef;
 use crate::eth_types::GethExecStep;
 use crate::{
     eth_types::Address,
-    exec_trace::{ExecutionStep, TraceContext},
+    // exec_trace::{ExecutionStep, TraceContext},
     operation::{StackOp, StorageOp, RW},
     Error,
 };
@@ -57,12 +57,15 @@ impl Opcode for Sload {
 #[cfg(test)]
 mod sload_tests {
     use super::*;
-    use crate::eth_types::{word, word_map};
+    use crate::eth_types::address;
     use crate::{
         bytecode,
-        eth_types::Word,
-        evm::{GasCost, Memory, OpcodeId, Stack, StackAddress, Storage},
-        external_tracer, BlockConstants, ExecutionTrace,
+        circuit_input_builder::{
+            CircuitInputBuilder, ExecutionStep, Transaction, TransactionContext,
+        },
+        eth_types::{self, GethExecTrace, Word},
+        evm::{Gas, GasCost, Memory, OpcodeId, Stack, StackAddress, Storage},
+        external_tracer as tracer, BlockConstants, ExecutionTrace,
     };
     use pasta_curves::pallas::Scalar;
     use std::collections::HashMap;
@@ -86,31 +89,32 @@ mod sload_tests {
         // Get the execution steps from the external tracer
         // Obtained trace computation
         let eth_block = eth_types::Block::mock();
-        let eth_tx = eth_types::Transaction::mock(&geth_block);
+        let eth_tx = eth_types::Transaction::mock(&eth_block);
         let block_ctants = BlockConstants::from_eth_block(
             &eth_block,
             &Word::one(),
-            &Address::from_str("0x00000000000000000000000000000000c014ba5e")
-                .unwrap(),
+            &address!("0x00000000000000000000000000000000c014ba5e"),
         );
-        let tracer_tx = Transaction::from_eth_tx(&eth_tx);
-        let tracer_account = Account::mock(&code);
+        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
+        let tracer_account = tracer::Account::mock(&code);
         let geth_trace = GethExecTrace {
             gas: Gas(eth_tx.gas.as_u64()),
             failed: false,
-            struct_logs: external_tracer::trace(
+            struct_logs: tracer::trace(
                 &block_ctants,
                 &tracer_tx,
                 &[tracer_account],
-            )?[code.get_pos("start")..],
+            )?[code.get_pos("start")..]
+                .to_vec(),
         };
         let obtained_steps = &geth_trace.struct_logs;
 
-        let mut builder = CircuitInputBuilder(eth_block, block_ctants.clone());
-        builder.handle_tx(eth_tx, geth_trace).unwrap();
+        let mut builder =
+            CircuitInputBuilder::new(eth_block.clone(), block_ctants.clone());
+        builder.handle_tx(&eth_tx, &geth_trace).unwrap();
 
         let mut test_builder =
-            CircuitInputBuilder(eth_bloc, block_ctants.clone());
+            CircuitInputBuilder::new(eth_block, block_ctants.clone());
         let mut tx = Transaction::new(&eth_tx);
         let mut tx_ctx = TransactionContext::new(&eth_tx);
 
@@ -133,8 +137,10 @@ mod sload_tests {
         // };
 
         // Add StackOp associated to the stack pop.
-        let mut step =
-            ExecutionStep::new(&geth_trace.struct_logs[0], self.block_ctx.gc);
+        let mut step = ExecutionStep::new(
+            &geth_trace.struct_logs[0],
+            test_builder.block_ctx.gc,
+        );
         let mut state_ref =
             test_builder.state_ref(&mut tx, &mut tx_ctx, &mut step);
         state_ref.push_op(StackOp::new(
@@ -156,6 +162,8 @@ mod sload_tests {
             StackAddress::from(1023),
             Word::from(0x6fu32),
         ));
+        tx.steps.push(step);
+        test_builder.block.txs.push(tx);
 
         assert_eq!(
             builder.block.txs[0].steps[0].bus_mapping_instance,

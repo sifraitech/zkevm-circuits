@@ -33,7 +33,8 @@ pub struct BlockConstants {
 }
 
 impl BlockConstants {
-    fn from_eth_block<TX>(
+    /// TODO
+    pub fn from_eth_block<TX>(
         block: &Block<TX>,
         chain_id: &Word,
         &coinbase: &Address,
@@ -50,7 +51,8 @@ impl BlockConstants {
         }
     }
 
-    fn mock() -> Self {
+    /// TODO
+    pub fn mock() -> Self {
         BlockConstants {
             hash: Hash::from([0u8; 32]),
             coinbase: Address::from_str(

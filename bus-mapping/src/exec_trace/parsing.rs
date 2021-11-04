@@ -122,6 +122,7 @@ pub(crate) struct ParsedExecutionStep<'a> {
     pub(crate) storage: Option<HashMap<&'a str, &'a str>>,
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,3 +281,4 @@ mod tests {
         assert_eq!(step_loaded, expected_step)
     }
 }
+*/

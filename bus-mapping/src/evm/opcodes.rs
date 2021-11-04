@@ -4,14 +4,14 @@ mod mload;
 mod push;
 mod sload;
 mod stop;
-use self::push::Push1;
+// use self::push::Push1;
 use crate::circuit_input_builder::{CircuitInputStateRef, ExecutionStep};
 use crate::eth_types::GethExecStep;
 use crate::exec_trace::TraceContext;
 use crate::Error;
 use core::fmt::Debug;
 use ids::OpcodeId;
-use mload::Mload;
+// use mload::Mload;
 use sload::Sload;
 use stop::Stop;
 
@@ -49,8 +49,8 @@ type FnGenAssociatedOps = fn(
 impl OpcodeId {
     fn fn_gen_associated_ops(&self) -> FnGenAssociatedOps {
         match *self {
-            OpcodeId::PUSH1 => Push1::gen_associated_ops,
-            OpcodeId::MLOAD => Mload::gen_associated_ops,
+            // OpcodeId::MLOAD => Mload::gen_associated_ops,
+            // OpcodeId::PUSH1 => Push1::gen_associated_ops,
             OpcodeId::SLOAD => Sload::gen_associated_ops,
             OpcodeId::STOP => Stop::gen_associated_ops,
             _ => unimplemented!(),

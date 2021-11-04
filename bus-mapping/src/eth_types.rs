@@ -185,7 +185,7 @@ pub struct Block<TX> {
     pub nonce: Option<H64>,
 }
 
-impl<TX> Block<TX> {
+impl Block<()> {
     /// TODO
     pub fn mock() -> Self {
         Self {
@@ -340,21 +340,24 @@ pub struct GethExecTrace {
 
 // TODO: Move this test macros to a crate, export them, and use them in all tests
 
-#[cfg(test)]
+// #[cfg(test)]
 macro_rules! address {
-    ($addr_hex:expr) => {
+    ($addr_hex:expr) => {{
+        use std::str::FromStr;
         Address::from_str(&$addr_hex).expect("invalid hex Address")
-    };
+    }};
 }
+pub(crate) use address;
 
-#[cfg(test)]
+// #[cfg(test)]
 macro_rules! word {
     ($word_hex:expr) => {
         Word::from_str_radix(&$word_hex, 16).expect("invalid hex Word")
     };
 }
+pub(crate) use word;
 
-#[cfg(test)]
+// #[cfg(test)]
 macro_rules! word_map {
     () => {
         HashMap::new()
@@ -373,7 +376,7 @@ macro_rules! word_map {
 mod tests {
     use super::*;
     use crate::evm::opcodes::ids::OpcodeId;
-    use crate::{memory::Memory, stack::Stack};
+    use crate::evm::{memory::Memory, stack::Stack};
 
     #[test]
     fn deserialize_geth_exec_trace2() {

@@ -16,7 +16,8 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    fn from_eth_tx(tx: &eth_types::Transaction) -> Self {
+    /// TODO
+    pub fn from_eth_tx(tx: &eth_types::Transaction) -> Self {
         Self {
             origin: tx.from.unwrap(),
             gas_limit: tx.gas,
@@ -24,7 +25,8 @@ impl Transaction {
         }
     }
 
-    fn mock() -> Self {
+    /// TODO
+    pub fn mock() -> Self {
         Transaction {
             origin: Address::from_str(
                 "0x00000000000000000000000000000000c014ba5e",
@@ -45,7 +47,8 @@ pub struct Account {
 }
 
 impl Account {
-    fn mock(code: &Bytecode) -> Self {
+    /// TODO
+    pub fn mock(code: &Bytecode) -> Self {
         Self {
             address: Transaction::mock().target,
             balance: Word::from(555u64),

@@ -53,7 +53,7 @@ impl BlockContext {
 pub struct Block {
     pub constants: BlockConstants,
     pub container: OperationContainer,
-    txs: Vec<Transaction>,
+    pub txs: Vec<Transaction>,
 }
 
 impl Block {
@@ -67,6 +67,11 @@ impl Block {
             txs: Vec::new(),
         }
     }
+
+    // /// TODO
+    // pub fn txs(&self) -> &[Transaction] {
+    //     &self.txs
+    // }
 }
 
 #[derive(Debug)]
@@ -84,13 +89,18 @@ impl TransactionContext {
 
 #[derive(Debug)]
 pub struct Transaction {
-    steps: Vec<ExecutionStep>,
+    pub steps: Vec<ExecutionStep>,
 }
 
 impl Transaction {
     pub fn new(eth_tx: &eth_types::Transaction) -> Self {
         Self { steps: Vec::new() }
     }
+
+    // /// TODO
+    // pub fn steps(&self) -> &[ExecutionStep] {
+    //     &self.steps
+    // }
 }
 
 pub struct CircuitInputStateRef<'a> {
