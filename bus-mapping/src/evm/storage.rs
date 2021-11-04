@@ -1,6 +1,7 @@
 //! Doc this
 use crate::eth_types::Word;
 use crate::Error;
+use serde::{de, Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Represents a snapshot of the EVM stack state at a certain
@@ -11,6 +12,23 @@ pub struct Storage(pub(crate) HashMap<Word, Word>);
 impl<T: Into<HashMap<Word, Word>>> From<T> for Storage {
     fn from(map: T) -> Self {
         Self(map.into())
+    }
+}
+
+impl Default for Storage {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl<'de> Deserialize<'de> for Storage {
+    fn deserialize<D>(deserializer: D) -> Result<Storage, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Storage::from(HashMap::<Word, Word>::deserialize(
+            deserializer,
+        )?))
     }
 }
 
@@ -31,7 +49,7 @@ impl Storage {
     }
 
     /// Get the word for a given key in the EVM storage.  Returns error if key is not found.
-    pub fn get_or_err(&self, key: &Word) -> Result<&Word, Error> {
-        self.get(key).ok_or(Error::InvalidStorageKey)
+    pub fn get_or_err(&self, key: &Word) -> Result<Word, Error> {
+        self.get(key).cloned().ok_or(Error::InvalidStorageKey)
     }
 }

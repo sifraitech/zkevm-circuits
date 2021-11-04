@@ -2,6 +2,7 @@
 use crate::eth_types::Word;
 use crate::Error;
 use core::str::FromStr;
+use serde::Deserialize;
 
 /// Represents a `StackAddress` of the EVM.
 /// The address range goes `TOP -> DOWN (1024, 0]`.
@@ -43,7 +44,7 @@ impl FromStr for StackAddress {
 
 /// Represents a snapshot of the EVM stack state at a certain
 /// execution step height.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct Stack(pub(crate) Vec<Word>);
 
 impl<T: Into<Vec<Word>>> From<T> for Stack {
@@ -86,7 +87,7 @@ impl Stack {
     }
 
     /// Returns the last [`Word`] allocated in the `Stack`.
-    pub fn last(&self) -> Option<&Word> {
-        self.0.last()
+    pub fn last(&self) -> Result<Word, Error> {
+        self.0.last().cloned().ok_or(Error::InvalidStackPointer)
     }
 }

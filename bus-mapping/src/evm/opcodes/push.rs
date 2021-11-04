@@ -1,3 +1,5 @@
+use crate::circuit_input_builder::CircuitInputStateRef;
+use crate::eth_types::GethExecStep;
 use core::ops::Deref;
 // Port this to a macro if possible to avoid defining all the PushN
 use super::Opcode;
@@ -16,27 +18,21 @@ pub(crate) struct Push1;
 
 impl Opcode for Push1 {
     fn gen_associated_ops(
-        &self,
-        ctx: &mut TraceContext,
-        // Contains the PUSH1 instr
-        exec_step: &mut ExecutionStep,
-        // Contains the next step where we can find the value that was pushed.
-        next_steps: &[ExecutionStep],
+        state: &mut CircuitInputStateRef,
+        steps: &[GethExecStep],
+        // &self,
+        // ctx: &mut TraceContext,
+        // // Contains the PUSH1 instr
+        // exec_step: &mut ExecutionStep,
+        // // Contains the next step where we can find the value that was pushed.
+        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
-        ctx.push_op(
-            exec_step,
-            StackOp::new(
-                RW::WRITE,
-                // Get the value and addr from the next step. Being the last position filled with an element in the stack
-                next_steps[0].stack().last_filled(),
-                next_steps[0]
-                    .stack()
-                    .deref()
-                    .last()
-                    .cloned()
-                    .ok_or(Error::InvalidStackPointer)?,
-            ),
-        );
+        state.push_op(StackOp::new(
+            RW::WRITE,
+            // Get the value and addr from the next step. Being the last position filled with an element in the stack
+            steps[1].stack.last_filled(),
+            steps[1].stack.last()?,
+        ));
 
         Ok(())
     }

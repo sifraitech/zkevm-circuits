@@ -1,7 +1,9 @@
 use super::Opcode;
+use crate::circuit_input_builder::CircuitInputStateRef;
+use crate::eth_types::GethExecStep;
 use crate::{
     evm::MemoryAddress,
-    exec_trace::{ExecutionStep, TraceContext},
+    // exec_trace::{ExecutionStep, TraceContext},
     operation::{MemoryOp, StackOp, RW},
     Error,
 };
@@ -17,40 +19,32 @@ pub(crate) struct Mload;
 impl Opcode for Mload {
     #[allow(unused_variables)]
     fn gen_associated_ops(
-        &self,
-        ctx: &mut TraceContext,
-        exec_step: &mut ExecutionStep,
-        next_steps: &[ExecutionStep],
+        state: &mut CircuitInputStateRef,
+        steps: &[GethExecStep],
+        // ctx: &mut TraceContext,
+        // exec_step: &mut ExecutionStep,
+        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
+        let step = &steps[0];
         //
         // First stack read
         //
-        let stack_value_read = exec_step
-            .stack()
-            .last()
-            .cloned()
-            .ok_or(Error::InvalidStackPointer)?;
-        let stack_position = exec_step.stack().last_filled();
+        let stack_value_read = step.stack.last()?;
+        let stack_position = step.stack.last_filled();
 
         // Manage first stack read at latest stack position
-        ctx.push_op(
-            exec_step,
-            StackOp::new(RW::READ, stack_position, stack_value_read),
-        );
+        state.push_op(StackOp::new(RW::READ, stack_position, stack_value_read));
 
         //
         // First mem read -> 32 MemoryOp generated.
         //
         let mut mem_read_addr: MemoryAddress = stack_value_read.try_into()?;
-        let mem_read_value = next_steps[0].memory().read_word(mem_read_addr)?;
+        let mem_read_value = steps[1].memory.read_word(mem_read_addr)?;
 
         let mut bytes = [0u8; 32];
         mem_read_value.to_big_endian(&mut bytes);
         bytes.iter().for_each(|value_byte| {
-            ctx.push_op(
-                exec_step,
-                MemoryOp::new(RW::READ, mem_read_addr, *value_byte),
-            );
+            state.push_op(MemoryOp::new(RW::READ, mem_read_addr, *value_byte));
 
             // Update mem_read_addr to next byte's one
             mem_read_addr += MemoryAddress::from(1);
@@ -59,10 +53,7 @@ impl Opcode for Mload {
         //
         // First stack write
         //
-        ctx.push_op(
-            exec_step,
-            StackOp::new(RW::WRITE, stack_position, mem_read_value),
-        );
+        state.push_op(StackOp::new(RW::WRITE, stack_position, mem_read_value));
 
         Ok(())
     }

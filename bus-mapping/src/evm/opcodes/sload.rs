@@ -1,4 +1,6 @@
 use super::Opcode;
+use crate::circuit_input_builder::CircuitInputStateRef;
+use crate::eth_types::GethExecStep;
 use crate::{
     eth_types::Address,
     exec_trace::{ExecutionStep, TraceContext},
@@ -14,46 +16,39 @@ pub(crate) struct Sload;
 impl Opcode for Sload {
     #[allow(unused_variables)]
     fn gen_associated_ops(
-        &self,
-        ctx: &mut TraceContext,
-        exec_step: &mut ExecutionStep,
-        next_steps: &[ExecutionStep],
+        state: &mut CircuitInputStateRef,
+        steps: &[GethExecStep],
+        // &self,
+        // ctx: &mut TraceContext,
+        // exec_step: &mut ExecutionStep,
+        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
-        let gc_start = ctx.gc;
+        let step = &steps[0];
+        let gc_start = state.block_ctx.gc;
 
         // First stack read
-        let stack_value_read = exec_step
-            .stack()
-            .last()
-            .cloned()
-            .ok_or(Error::InvalidStackPointer)?;
-        let stack_position = exec_step.stack().last_filled();
+        let stack_value_read = step.stack.last()?;
+        let stack_position = step.stack.last_filled();
 
         // Manage first stack read at latest stack position
-        ctx.push_op(
-            exec_step,
-            StackOp::new(RW::READ, stack_position, stack_value_read),
-        );
+        state.push_op(StackOp::new(RW::READ, stack_position, stack_value_read));
 
         // Storage read
-        let storage_value_read =
-            *exec_step.storage().get_or_err(&stack_value_read)?;
-        ctx.push_op(
-            exec_step,
-            StorageOp::new(
-                RW::READ,
-                Address::from([0u8; 20]), // TODO: Fill with the correct value
-                stack_value_read,
-                storage_value_read,
-                storage_value_read,
-            ),
-        );
+        let storage_value_read = step.storage.get_or_err(&stack_value_read)?;
+        state.push_op(StorageOp::new(
+            RW::READ,
+            Address::from([0u8; 20]), // TODO: Fill with the correct value
+            stack_value_read,
+            storage_value_read,
+            storage_value_read,
+        ));
 
         // First stack write
-        ctx.push_op(
-            exec_step,
-            StackOp::new(RW::WRITE, stack_position, storage_value_read),
-        );
+        state.push_op(StackOp::new(
+            RW::WRITE,
+            stack_position,
+            storage_value_read,
+        ));
 
         Ok(())
     }
@@ -62,6 +57,7 @@ impl Opcode for Sload {
 #[cfg(test)]
 mod sload_tests {
     use super::*;
+    use crate::eth_types::{word, word_map};
     use crate::{
         bytecode,
         eth_types::Word,
@@ -87,75 +83,86 @@ mod sload_tests {
             STOP
         };
 
-        let block_ctants = BlockConstants::default();
-
         // Get the execution steps from the external tracer
-        let obtained_steps = &external_tracer::trace(&block_ctants, &code)?
-            [code.get_pos("start")..];
-
         // Obtained trace computation
-        let obtained_exec_trace =
-            ExecutionTrace::new(obtained_steps.to_vec(), block_ctants)?;
+        let eth_block = eth_types::Block::mock();
+        let eth_tx = eth_types::Transaction::mock(&geth_block);
+        let block_ctants = BlockConstants::from_eth_block(
+            &eth_block,
+            &Word::one(),
+            &Address::from_str("0x00000000000000000000000000000000c014ba5e")
+                .unwrap(),
+        );
+        let tracer_tx = Transaction::from_eth_tx(&eth_tx);
+        let tracer_account = Account::mock(&code);
+        let geth_trace = GethExecTrace {
+            gas: Gas(eth_tx.gas.as_u64()),
+            failed: false,
+            struct_logs: external_tracer::trace(
+                &block_ctants,
+                &tracer_tx,
+                &[tracer_account],
+            )?[code.get_pos("start")..],
+        };
+        let obtained_steps = &geth_trace.struct_logs;
 
-        let mut ctx = TraceContext::new();
+        let mut builder = CircuitInputBuilder(eth_block, block_ctants.clone());
+        builder.handle_tx(eth_tx, geth_trace).unwrap();
+
+        let mut test_builder =
+            CircuitInputBuilder(eth_bloc, block_ctants.clone());
+        let mut tx = Transaction::new(&eth_tx);
+        let mut tx_ctx = TransactionContext::new(&eth_tx);
 
         // Start from the same pc and gas limit
-        let mut pc = obtained_steps[0].pc();
-        let gas = obtained_steps[0].gas();
+        let mut pc = geth_trace.struct_logs[0].pc;
+        let gas = geth_trace.struct_logs[0].gas;
 
         // Generate Step1 corresponding to SLOAD
-        let mut step_1 = ExecutionStep {
-            memory: Memory::empty(),
-            stack: Stack(vec![Word::from(0x0u32)]),
-            storage: Storage::new(HashMap::from_iter([(
-                Word::from(0x0u32),
-                Word::from(0x6fu32),
-            )])),
-            instruction: OpcodeId::SLOAD,
-            gas,
-            gas_cost: GasCost::WARM_STORAGE_READ_COST,
-            depth: 1u8,
-            pc: pc.inc_pre(),
-            gc: ctx.gc,
-            bus_mapping_instance: vec![],
-        };
+        // let mut step_1 = ExecutionStep {
+        //     memory: Memory::new(),
+        //     stack: Stack(vec![Word(0x0)]),
+        //     storage: Storage(word_map!("0x0" => "0x6f")),
+        //     instruction: OpcodeId::SLOAD,
+        //     gas,
+        //     gas_cost: GasCost::WARM_STORAGE_READ_COST,
+        //     depth: 1u8,
+        //     pc: pc.inc_pre(),
+        //     gc: ctx.gc,
+        //     bus_mapping_instance: vec![],
+        // };
 
         // Add StackOp associated to the stack pop.
-        ctx.push_op(
-            &mut step_1,
-            StackOp::new(
-                RW::READ,
-                StackAddress::from(1023),
-                Word::from(0x0u32),
-            ),
-        );
+        let mut step =
+            ExecutionStep::new(&geth_trace.struct_logs[0], self.block_ctx.gc);
+        let mut state_ref =
+            test_builder.state_ref(&mut tx, &mut tx_ctx, &mut step);
+        state_ref.push_op(StackOp::new(
+            RW::READ,
+            StackAddress::from(1023),
+            Word::from(0x0u32),
+        ));
         // Add StorageOp associated to the storage read.
-        ctx.push_op(
-            &mut step_1,
-            StorageOp::new(
-                RW::READ,
-                Address::from([0u8; 20]), // TODO: Fill with the correct value
-                Word::from(0x0u32),
-                Word::from(0x6fu32),
-                Word::from(0x6fu32),
-            ),
-        );
+        state_ref.push_op(StorageOp::new(
+            RW::READ,
+            Address::from([0u8; 20]), // TODO: Fill with the correct value
+            Word::from(0x0u32),
+            Word::from(0x6fu32),
+            Word::from(0x6fu32),
+        ));
         // Add StackOp associated to the stack push.
-        ctx.push_op(
-            &mut step_1,
-            StackOp::new(
-                RW::WRITE,
-                StackAddress::from(1023),
-                Word::from(0x6fu32),
-            ),
-        );
+        state_ref.push_op(StackOp::new(
+            RW::WRITE,
+            StackAddress::from(1023),
+            Word::from(0x6fu32),
+        ));
 
         assert_eq!(
-            obtained_exec_trace[0].bus_mapping_instance(),
-            step_1.bus_mapping_instance()
+            builder.block.txs[0].steps[0].bus_mapping_instance,
+            test_builder.block.txs[0].steps[0].bus_mapping_instance
         );
-        assert_eq!(obtained_exec_trace[0], step_1);
-        assert_eq!(obtained_exec_trace.ctx.container, ctx.container);
+        // assert_eq!(obtained_exec_trace[0], step_1);
+        assert_eq!(builder.block.container, test_builder.block.container);
 
         Ok(())
     }

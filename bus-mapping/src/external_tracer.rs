@@ -1,11 +1,9 @@
 //! This module generates traces by connecting to an external tracer
-use crate::eth_types::{Address, Word};
+use crate::eth_types::{self, Address, GethExecStep, Word};
 use crate::Error;
-use crate::{
-    bytecode::Bytecode, BlockConstants, ExecutionStep, ExecutionTrace,
-};
+use crate::{bytecode::Bytecode, BlockConstants};
 use geth_utils;
-use pasta_curves::arithmetic::FieldExt;
+// use pasta_curves::arithmetic::FieldExt;
 use serde::Serialize;
 use std::str::FromStr;
 
@@ -17,8 +15,16 @@ pub struct Transaction {
     target: Address,
 }
 
-impl Default for Transaction {
-    fn default() -> Self {
+impl Transaction {
+    fn from_eth_tx(tx: &eth_types::Transaction) -> Self {
+        Self {
+            origin: tx.from.unwrap(),
+            gas_limit: tx.gas,
+            target: tx.to.unwrap(),
+        }
+    }
+
+    fn mock() -> Self {
         Transaction {
             origin: Address::from_str(
                 "0x00000000000000000000000000000000c014ba5e",
@@ -38,6 +44,16 @@ pub struct Account {
     code: String,
 }
 
+impl Account {
+    fn mock(code: &Bytecode) -> Self {
+        Self {
+            address: Transaction::mock().target,
+            balance: Word::from(555u64),
+            code: hex::encode(code.to_bytes()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct GethConfig {
     block_constants: BlockConstants,
@@ -48,27 +64,34 @@ struct GethConfig {
 /// Creates a trace for the specified config
 pub fn trace(
     block_constants: &BlockConstants,
-    code: &Bytecode,
-) -> Result<Vec<ExecutionStep>, Error> {
+    tx: &Transaction,
+    accounts: &[Account],
+    // code: &Bytecode,
+) -> Result<Vec<GethExecStep>, Error> {
     // Some default values for now
-    let transaction = Transaction::default();
-    let account = Account {
-        address: transaction.target,
-        balance: Word::from(555u64),
-        code: hex::encode(code.to_bytes()),
-    };
+    // let transaction = Transaction::default();
+    // let account = Account {
+    //     address: transaction.target,
+    //     balance: Word::from(555u64),
+    //     code: hex::encode(code.to_bytes()),
+    // };
 
     let geth_config = GethConfig {
         block_constants: block_constants.clone(),
-        transaction,
-        accounts: vec![account],
+        transaction: tx.clone(),
+        accounts: accounts.to_vec(),
     };
 
     // Get the trace
-    let trace =
+    let trace_string =
         geth_utils::trace(&serde_json::to_string(&geth_config).unwrap())
+            // TODO: Capture error into TracingError if possible
             .map_err(|_| Error::TracingError)?;
 
+    // TODO: Capture error into TracingError if possible
+    let trace: Vec<GethExecStep> =
+        serde_json::from_str(&trace_string).map_err(|_| Error::TracingError)?;
+    Ok(trace)
     // Generate the execution steps
-    ExecutionTrace::load_trace(trace.as_bytes())
+    // ExecutionTrace::load_trace(trace.as_bytes())
 }

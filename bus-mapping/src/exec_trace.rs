@@ -3,7 +3,7 @@
 pub(crate) mod exec_step;
 pub(crate) mod parsing;
 use crate::eth_types::Address;
-use crate::eth_types::{Hash, Word};
+use crate::eth_types::{Block, Hash, Word};
 use crate::operation::{
     container::OperationContainer, GlobalCounter, Op, Operation,
 };
@@ -16,6 +16,7 @@ use pasta_curves::arithmetic::FieldExt;
 use serde::Serialize;
 use std::convert::TryFrom;
 use std::str::FromStr;
+use web3::types::U64;
 
 /// Definition of all of the constants related to an Ethereum block and
 /// therefore, related with an [`ExecutionTrace`].
@@ -24,15 +25,32 @@ pub struct BlockConstants {
     hash: Hash, // Until we know how to deal with it
     coinbase: Address,
     timestamp: Word,
-    number: Word, // u64
+    number: U64, // u64
     difficulty: Word,
     gas_limit: Word,
     chain_id: Word,
     base_fee: Word,
 }
 
-impl Default for BlockConstants {
-    fn default() -> Self {
+impl BlockConstants {
+    fn from_eth_block<TX>(
+        block: &Block<TX>,
+        chain_id: &Word,
+        &coinbase: &Address,
+    ) -> Self {
+        Self {
+            hash: block.hash.unwrap(),
+            coinbase: coinbase,
+            timestamp: block.timestamp,
+            number: block.number.unwrap(),
+            difficulty: block.difficulty,
+            gas_limit: block.gas_limit,
+            chain_id: *chain_id,
+            base_fee: block.base_fee_per_gas.unwrap(),
+        }
+    }
+
+    fn mock() -> Self {
         BlockConstants {
             hash: Hash::from([0u8; 32]),
             coinbase: Address::from_str(
@@ -40,7 +58,7 @@ impl Default for BlockConstants {
             )
             .unwrap(),
             timestamp: Word::from(1633398551u64),
-            number: Word::from(123456u64),
+            number: U64([123456u64]),
             difficulty: Word::from(0x200000u64),
             gas_limit: Word::from(15_000_000u64),
             chain_id: Word::one(),
@@ -56,7 +74,7 @@ impl BlockConstants {
         hash: Hash,
         coinbase: Address,
         timestamp: Word,
-        number: Word,
+        number: U64,
         difficulty: Word,
         gas_limit: Word,
         chain_id: Word,
@@ -93,7 +111,7 @@ impl BlockConstants {
 
     #[inline]
     /// Return the block number.
-    pub fn number(&self) -> &Word {
+    pub fn number(&self) -> &U64 {
         &self.number
     }
 
@@ -211,38 +229,38 @@ impl ExecutionTrace {
             .collect::<Result<Vec<ExecutionStep>, Error>>()
     }
 
-    /// Given an EVM trace in JSON format according to the specs and format
-    /// shown in [zkevm-test-vectors crate](https://github.com/appliedzkp/zkevm-testing-vectors), generate an `ExecutionTrace`
-    /// and generate all of the [`Operation`]s associated to each one of it's
-    /// [`ExecutionStep`]s filling them bus-mapping instances.
-    pub fn from_trace_bytes<T: AsRef<[u8]>>(
-        bytes: T,
-        block_ctants: BlockConstants,
-    ) -> Result<ExecutionTrace, Error> {
-        let trace_loaded = Self::load_trace(bytes)?;
-        ExecutionTrace::new(trace_loaded, block_ctants)
-    }
+    // /// Given an EVM trace in JSON format according to the specs and format
+    // /// shown in [zkevm-test-vectors crate](https://github.com/appliedzkp/zkevm-testing-vectors), generate an `ExecutionTrace`
+    // /// and generate all of the [`Operation`]s associated to each one of it's
+    // /// [`ExecutionStep`]s filling them bus-mapping instances.
+    // pub fn from_trace_bytes<T: AsRef<[u8]>>(
+    //     bytes: T,
+    //     block_ctants: BlockConstants,
+    // ) -> Result<ExecutionTrace, Error> {
+    //     let trace_loaded = Self::load_trace(bytes)?;
+    //     ExecutionTrace::new(trace_loaded, block_ctants)
+    // }
 
-    /// Given a vector of [`ExecutionStep`]s and a [`BlockConstants`] instance,
-    /// generate an [`ExecutionTrace`] by:
-    ///
-    /// 1) Setting the correct [`GlobalCounter`](crate::evm::GlobalCounter) to
-    /// each [`ExecutionStep`].
-    /// 2) Generating the corresponding [`Operation`]s, registering them in the
-    /// container and storing the [`OperationRef`]s to each one of the
-    /// generated ops into the bus-mapping instances of each [`ExecutionStep`].
-    pub(crate) fn new(
-        steps: Vec<ExecutionStep>,
-        block_ctants: BlockConstants,
-    ) -> Result<Self, Error> {
-        ExecutionTrace {
-            steps,
-            block_ctants,
-            /// Dummy empty TraceContext to enable build.
-            ctx: TraceContext::new(),
-        }
-        .build()
-    }
+    // /// Given a vector of [`ExecutionStep`]s and a [`BlockConstants`] instance,
+    // /// generate an [`ExecutionTrace`] by:
+    // ///
+    // /// 1) Setting the correct [`GlobalCounter`](crate::evm::GlobalCounter) to
+    // /// each [`ExecutionStep`].
+    // /// 2) Generating the corresponding [`Operation`]s, registering them in the
+    // /// container and storing the [`OperationRef`]s to each one of the
+    // /// generated ops into the bus-mapping instances of each [`ExecutionStep`].
+    // pub(crate) fn new(
+    //     steps: Vec<ExecutionStep>,
+    //     block_ctants: BlockConstants,
+    // ) -> Result<Self, Error> {
+    //     ExecutionTrace {
+    //         steps,
+    //         block_ctants,
+    //         /// Dummy empty TraceContext to enable build.
+    //         ctx: TraceContext::new(),
+    //     }
+    //     .build()
+    // }
 
     /// Returns an ordered `Vec` containing all the [`StackOp`]s of the actual
     /// `ExecutionTrace` so that they can be directly included in the State
@@ -265,35 +283,35 @@ impl ExecutionTrace {
         self.ctx.container.sorted_storage()
     }
 
-    /// Traverses the trace step by step, and for each [`ExecutionStep`]:
-    /// 1.  Sets the correct [`GlobalCounter`](crate::evm::GlobalCounter).
-    /// 2.  Generates the corresponding [`Operation`]s  associated to the
-    /// [`OpcodeId`](crate::evm::OpcodeId) executed in the step and stores them inside the
-    /// [`OperationContainer`] instance stored inside of the trace.
-    /// It also adds the [`OperationRef`]s obtained from the container
-    /// addition into each [`ExecutionStep`] bus-mapping instances.
-    fn build(mut self) -> Result<Self, Error> {
-        let mut ctx = TraceContext::new();
-        // XXX: We need a better achitecture to work on that without cloning..
-        let cloned_steps = self.steps().clone();
+    // /// Traverses the trace step by step, and for each [`ExecutionStep`]:
+    // /// 1.  Sets the correct [`GlobalCounter`](crate::evm::GlobalCounter).
+    // /// 2.  Generates the corresponding [`Operation`]s  associated to the
+    // /// [`OpcodeId`](crate::evm::OpcodeId) executed in the step and stores them inside the
+    // /// [`OperationContainer`] instance stored inside of the trace.
+    // /// It also adds the [`OperationRef`]s obtained from the container
+    // /// addition into each [`ExecutionStep`] bus-mapping instances.
+    // fn build(mut self) -> Result<Self, Error> {
+    //     let mut ctx = TraceContext::new();
+    //     // XXX: We need a better achitecture to work on that without cloning..
+    //     let cloned_steps = self.steps().clone();
 
-        // Generate operations and update the GlobalCounter of each step.
-        self.steps_mut()
-            .iter_mut()
-            .enumerate()
-            .try_for_each::<_, Result<_, Error>>(|(idx, exec_step)| {
-                // Set the exec_step global counter
-                exec_step.set_gc(ctx.gc);
-                // Add the `OpcodeId` associated ops and increment the gc counting
-                // all of them.
-                exec_step
-                    .gen_associated_ops(&mut ctx, &cloned_steps[idx + 1..])?;
-                Ok(())
-            })?;
-        // Replace the empty original container with the new one we just filled.
-        self.ctx = ctx;
-        Ok(self)
-    }
+    //     // Generate operations and update the GlobalCounter of each step.
+    //     self.steps_mut()
+    //         .iter_mut()
+    //         .enumerate()
+    //         .try_for_each::<_, Result<_, Error>>(|(idx, exec_step)| {
+    //             // Set the exec_step global counter
+    //             exec_step.set_gc(ctx.gc);
+    //             // Add the `OpcodeId` associated ops and increment the gc counting
+    //             // all of them.
+    //             exec_step
+    //                 .gen_associated_ops(&mut ctx, &cloned_steps[idx + 1..])?;
+    //             Ok(())
+    //         })?;
+    //     // Replace the empty original container with the new one we just filled.
+    //     self.ctx = ctx;
+    //     Ok(self)
+    // }
 
     /// Returns a reference to the [`ExecutionStep`] vector instance
     /// that the `ExecutionTrace` holds.

@@ -1,4 +1,6 @@
 use super::Opcode;
+use crate::circuit_input_builder::CircuitInputStateRef;
+use crate::eth_types::GethExecStep;
 use crate::{
     exec_trace::{ExecutionStep, TraceContext},
     Error,
@@ -15,10 +17,12 @@ pub(crate) struct Stop;
 impl Opcode for Stop {
     #[allow(unused_variables)]
     fn gen_associated_ops(
-        &self,
-        ctx: &mut TraceContext,
-        exec_step: &mut ExecutionStep,
-        next_steps: &[ExecutionStep],
+        state: &mut CircuitInputStateRef,
+        steps: &[GethExecStep],
+        // &self,
+        // ctx: &mut TraceContext,
+        // exec_step: &mut ExecutionStep,
+        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
         // Stop does not generate any operations
         Ok(())

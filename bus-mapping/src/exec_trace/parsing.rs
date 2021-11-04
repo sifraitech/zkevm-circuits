@@ -5,7 +5,7 @@ use crate::evm::{Gas, GasCost, ProgramCounter};
 use crate::ExecutionStep;
 use crate::{
     error::{Error, EvmWordParsingError},
-    evm::OpcodeId,
+    evm::{memory::Memory, stack::Stack, OpcodeId},
 };
 use core::{convert::TryFrom, str::FromStr};
 use serde::{Deserialize, Serialize};
@@ -62,47 +62,49 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[doc(hidden)]
-pub(crate) struct GethBlock {}
+// #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+// #[doc(hidden)]
+// pub(crate) struct GethBlock {}
+//
+// #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+// #[doc(hidden)]
+// pub(crate) struct GethTransaction {}
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[doc(hidden)]
-pub(crate) struct GethTransaction {}
-
-/// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[doc(hidden)]
-pub struct GethExecStep {
-    pub pc: ProgramCounter,
-    pub op: OpcodeId,
-    pub gas: Gas,
-    #[serde(alias = "gasCost")]
-    pub gas_cost: GasCost,
-    pub depth: u8,
-    // pub(crate) error: &'a str,
-    // stack is in hex 0x prefixed
-    pub stack: Vec<Word>,
-    // memory is in chunks of 32 bytes, in hex
-    #[serde(default)]
-    pub memory: Vec<Word>,
-    // storage is hex -> hex
-    #[serde(default)]
-    pub storage: HashMap<Word, Word>,
-}
-
-/// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[doc(hidden)]
-pub struct GethExecTrace {
-    pub gas: Gas,
-    pub failed: bool,
-    // return_value is a hex encoded byte array
-    // #[serde(alias = "returnValue")]
-    // pub(crate) return_value: String,
-    #[serde(alias = "structLogs")]
-    pub struct_logs: Vec<GethExecStep>,
-}
+// /// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
+// #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+// #[doc(hidden)]
+// pub struct GethExecStep {
+//     pub pc: ProgramCounter,
+//     pub op: OpcodeId,
+//     pub gas: Gas,
+//     #[serde(alias = "gasCost")]
+//     pub gas_cost: GasCost,
+//     pub depth: u8,
+//     // pub(crate) error: &'a str,
+//     // stack is in hex 0x prefixed
+//     // pub stack: Vec<Word>,
+//     pub stack: Stack,
+//     // memory is in chunks of 32 bytes, in hex
+//     #[serde(default)]
+//     // pub memory: Vec<Word>,
+//     pub memory: Memory,
+//     // storage is hex -> hex
+//     #[serde(default)]
+//     pub storage: HashMap<Word, Word>,
+// }
+//
+// /// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
+// #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+// #[doc(hidden)]
+// pub struct GethExecTrace {
+//     pub gas: Gas,
+//     pub failed: bool,
+//     // return_value is a hex encoded byte array
+//     // #[serde(alias = "returnValue")]
+//     // pub(crate) return_value: String,
+//     #[serde(alias = "structLogs")]
+//     pub struct_logs: Vec<GethExecStep>,
+// }
 
 /// Helper structure whose only purpose is to serve as a De/Serialization
 /// derivation guide for the serde Derive macro.

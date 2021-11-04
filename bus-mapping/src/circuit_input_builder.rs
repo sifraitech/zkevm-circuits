@@ -1,66 +1,70 @@
 #![allow(missing_docs)]
 
-use crate::eth_types::Address;
+use crate::eth_types::{self, Address, GethExecStep, GethExecTrace};
 use crate::evm::GlobalCounter;
-use crate::exec_trace::parsing::{GethExecStep, GethExecTrace};
+use crate::evm::OpcodeId;
+use crate::exec_trace::OperationRef;
 use crate::operation::container::OperationContainer;
+use crate::operation::{Op, Operation};
 use crate::{BlockConstants, Error};
 use core::fmt::Debug;
-use pasta_curves::arithmetic::FieldExt;
+// use pasta_curves::arithmetic::FieldExt;
 
 // mock
 #[derive(Debug)]
-pub struct GethBlock {}
-
-// mock
-#[derive(Debug)]
-pub struct GethTransaction {}
-
-// mock
-#[derive(Debug)]
-pub struct ExecutionStep {}
+pub struct ExecutionStep {
+    pub op: OpcodeId,
+    pub gc: GlobalCounter,
+    pub bus_mapping_instance: Vec<OperationRef>,
+}
 
 impl ExecutionStep {
     pub fn new(geth_step: &GethExecStep, gc: GlobalCounter) -> Self {
-        Self {}
+        Self {
+            op: geth_step.op,
+            gc,
+            bus_mapping_instance: Vec::new(),
+        }
     }
-    pub fn gen_associated_ops(
-        &mut self,
-        ctx: &mut Context,
-        geth_steps: &[GethExecStep],
-    ) -> Result<(), Error> {
-        Ok(())
-    }
+    // pub fn gen_associated_ops(
+    //     &mut self,
+    //     state_ref: &mut CircuitInputStateRef,
+    //     next_steps: &[GethExecStep],
+    // ) -> Result<(), Error> {
+    //     self.op
+    //         .gen_associated_ops(&mut self, &mut state_ref, next_steps)
+    // }
 }
 
 #[derive(Debug)]
-pub struct Block {
-    constants: BlockConstants,
-    ctx: BlockContext,
-    txs: Vec<Transaction>,
+pub struct BlockContext {
+    pub gc: GlobalCounter,
 }
 
-impl Block {
-    pub fn new(geth_block: &GethBlock, constants: BlockConstants) -> Self {
+impl BlockContext {
+    pub fn new() -> Self {
         Self {
-            constants,
-            ctx: BlockContext::new(),
-            txs: Vec::new(),
+            gc: GlobalCounter::new(),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct Transaction {
-    ctx: TransactionContext,
-    steps: Vec<ExecutionStep>,
+pub struct Block {
+    pub constants: BlockConstants,
+    pub container: OperationContainer,
+    txs: Vec<Transaction>,
 }
 
-impl Transaction {
-    pub fn new(geth_tx: &GethTransaction) -> Self {
+impl Block {
+    pub fn new<TX>(
+        eth_block: &eth_types::Block<TX>,
+        constants: BlockConstants,
+    ) -> Self {
         Self {
-            ctx: TransactionContext::new(geth_tx),
-            steps: Vec::new(),
+            constants,
+            container: OperationContainer::new(),
+            txs: Vec::new(),
         }
     }
 }
@@ -71,7 +75,7 @@ pub struct TransactionContext {
 }
 
 impl TransactionContext {
-    pub fn new(tx: &GethTransaction) -> Self {
+    pub fn new(eth_tx: &eth_types::Transaction) -> Self {
         Self {
             address: Address::from([0; 20]),
         }
@@ -79,51 +83,82 @@ impl TransactionContext {
 }
 
 #[derive(Debug)]
-pub struct BlockContext {
-    gc: GlobalCounter,
-    container: OperationContainer,
+pub struct Transaction {
+    steps: Vec<ExecutionStep>,
 }
 
-impl BlockContext {
-    pub fn new() -> Self {
-        Self {
-            gc: GlobalCounter::new(),
-            container: OperationContainer::new(),
-        }
+impl Transaction {
+    pub fn new(eth_tx: &eth_types::Transaction) -> Self {
+        Self { steps: Vec::new() }
     }
 }
 
-pub struct Context<'a> {
-    block: &'a BlockContext,
-    tx: &'a TransactionContext,
+pub struct CircuitInputStateRef<'a> {
+    pub block: &'a mut Block,
+    pub block_ctx: &'a mut BlockContext,
+    pub tx: &'a mut Transaction,
+    pub tx_ctx: &'a mut TransactionContext,
+    pub step: &'a mut ExecutionStep,
+}
+
+impl<'a> CircuitInputStateRef<'a> {
+    /// Push an [`Operation`] into the [`OperationContainer`] with the next [`GlobalCounter`] and
+    /// then adds a reference to the stored operation ([`OperationRef`]) inside the bus-mapping
+    /// instance of the given [`ExecutionStep`].  Then increase the internal [`GlobalCounter`] by
+    /// one.
+    pub fn push_op<T: Op>(&mut self, op: T) {
+        let op_ref = self
+            .block
+            .container
+            .insert(Operation::new(self.block_ctx.gc.inc_pre(), op));
+        self.step.bus_mapping_instance.push(op_ref);
+    }
 }
 
 #[derive(Debug)]
 pub struct CircuitInputBuilder {
-    block: Block,
+    pub block: Block,
+    pub block_ctx: BlockContext,
 }
 
-impl CircuitInputBuilder {
-    pub fn new(geth_block: GethBlock, constants: BlockConstants) -> Self {
+impl<'a> CircuitInputBuilder {
+    pub fn new<TX>(
+        eth_block: eth_types::Block<TX>,
+        constants: BlockConstants,
+    ) -> Self {
         Self {
-            block: Block::new(&geth_block, constants),
+            block: Block::new(&eth_block, constants),
+            block_ctx: BlockContext::new(),
+        }
+    }
+
+    pub fn state_ref(
+        &'a mut self,
+        mut tx: &'a mut Transaction,
+        mut tx_ctx: &'a mut TransactionContext,
+        mut step: &'a mut ExecutionStep,
+    ) -> CircuitInputStateRef {
+        CircuitInputStateRef {
+            block: &mut self.block,
+            block_ctx: &mut self.block_ctx,
+            tx,
+            tx_ctx,
+            step,
         }
     }
 
     pub fn handle_tx(
         &mut self,
-        geth_tx: &GethTransaction,
+        eth_tx: &eth_types::Transaction,
         geth_trace: &GethExecTrace,
     ) -> Result<(), Error> {
-        let mut tx = Transaction::new(&geth_tx);
-        let mut ctx = Context {
-            block: &self.block.ctx,
-            tx: &tx.ctx,
-        };
+        let mut tx = Transaction::new(&eth_tx);
+        let mut tx_ctx = TransactionContext::new(&eth_tx);
         for (index, geth_step) in geth_trace.struct_logs.iter().enumerate() {
-            let mut step = ExecutionStep::new(&geth_step, self.block.ctx.gc);
-            step.gen_associated_ops(
-                &mut ctx,
+            let mut step = ExecutionStep::new(&geth_step, self.block_ctx.gc);
+            let mut state_ref = self.state_ref(&mut tx, &mut tx_ctx, &mut step);
+            geth_step.op.gen_associated_ops(
+                &mut state_ref,
                 &geth_trace.struct_logs[index..],
             )?;
             tx.steps.push(step);

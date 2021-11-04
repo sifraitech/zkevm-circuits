@@ -6,6 +6,7 @@ use core::ops::{
     Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign,
 };
 use core::str::FromStr;
+use serde::{de, Deserialize, Serialize};
 
 /// Represents a `MemoryAddress` of the EVM.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -158,9 +159,30 @@ define_mul_assign_variants!(LHS = MemoryAddress, RHS = MemoryAddress);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Memory(pub(crate) Vec<u8>);
 
+impl Default for Memory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'de> Deserialize<'de> for Memory {
+    fn deserialize<D>(deserializer: D) -> Result<Memory, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Memory::from(Vec::<Word>::deserialize(deserializer)?))
+    }
+}
+
 impl From<Vec<u8>> for Memory {
     fn from(vec: Vec<u8>) -> Self {
         Memory(vec)
+    }
+}
+
+impl From<Vec<Word>> for Memory {
+    fn from(vec: Vec<Word>) -> Self {
+        Memory(vec.iter().flat_map(|word| word.to_be_bytes()).collect())
     }
 }
 
@@ -187,15 +209,15 @@ define_range_index_variants!(
 );
 
 impl Memory {
-    /// Generate an empty instance of EVM memory.
-    pub const fn empty() -> Memory {
+    /// Generate an new empty instance of EVM memory.
+    pub const fn new() -> Memory {
         Memory(Vec::new())
     }
 
-    /// Generate an new instance of EVM memory given a `Vec<u8>`.
-    pub fn new(words: Vec<u8>) -> Memory {
-        Memory(words)
-    }
+    // /// Generate an new instance of EVM memory given a `Vec<u8>`.
+    // pub fn new(words: Vec<u8>) -> Memory {
+    //     Memory(words)
+    // }
 
     /// Pushes a set of bytes or an [`Word`] in the last `Memory` position.
     pub fn push<T: AsRef<[u8]>>(&mut self, input: T) {

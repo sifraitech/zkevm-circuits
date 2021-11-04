@@ -1,11 +1,12 @@
 //! TODO
 
+use crate::evm::{memory::Memory, stack::Stack, storage::Storage};
 use crate::evm::{Gas, GasCost, OpcodeId, ProgramCounter};
 use pasta_curves::arithmetic::FieldExt;
-use serde::{de, Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
-use web3::types;
+use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U64};
 
 use subtle::CtOption;
 // use ethereum_types::{H160, H2048, H256, H64, U256, U64};
@@ -108,74 +109,197 @@ impl<F: FieldExt> ToField<F> for Address {
     }
 }
 
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    let option = Option::deserialize(deserializer)?;
+    Ok(option.unwrap_or_default())
+}
+
+// pub type Block = types::Block<Transaction>;
+
 // From `web3/types/block.rs`
 /// The block type returned from RPC calls.
 /// This is generic over a `TX` type.
-pub type Block = types::Block<Transaction>;
-//#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
-//pub struct Block<TX> {
-//    /// Hash of the block
-//    pub hash: Option<H256>,
-//    /// Hash of the parent
-//    #[serde(rename = "parentHash")]
-//    pub parent_hash: H256,
-//    /// Hash of the uncles
-//    #[serde(rename = "sha3Uncles")]
-//    pub uncles_hash: H256,
-//    /// Miner/author's address.
-//    #[serde(rename = "miner", default, deserialize_with = "null_to_default")]
-//    pub author: H160,
-//    /// State root hash
-//    #[serde(rename = "stateRoot")]
-//    pub state_root: H256,
-//    /// Transactions root hash
-//    #[serde(rename = "transactionsRoot")]
-//    pub transactions_root: H256,
-//    /// Transactions receipts root hash
-//    #[serde(rename = "receiptsRoot")]
-//    pub receipts_root: H256,
-//    /// Block number. None if pending.
-//    pub number: Option<U64>,
-//    /// Gas Used
-//    #[serde(rename = "gasUsed")]
-//    pub gas_used: U256,
-//    /// Gas Limit
-//    #[serde(rename = "gasLimit")]
-//    pub gas_limit: U256,
-//    /// Base fee per unit of gas (if past London)
-//    #[serde(rename = "baseFeePerGas")]
-//    pub base_fee_per_gas: Option<U256>,
-//    /// Extra data
-//    #[serde(rename = "extraData")]
-//    pub extra_data: Bytes,
-//    /// Logs bloom
-//    #[serde(rename = "logsBloom")]
-//    pub logs_bloom: Option<H2048>,
-//    /// Timestamp
-//    pub timestamp: U256,
-//    /// Difficulty
-//    pub difficulty: U256,
-//    /// Total difficulty
-//    #[serde(rename = "totalDifficulty")]
-//    pub total_difficulty: Option<U256>,
-//    /// Seal fields
-//    #[serde(default, rename = "sealFields")]
-//    pub seal_fields: Vec<Bytes>,
-//    /// Uncles' hashes
-//    pub uncles: Vec<H256>,
-//    /// Transactions
-//    pub transactions: Vec<TX>,
-//    /// Size in bytes
-//    pub size: Option<U256>,
-//    /// Mix Hash
-//    #[serde(rename = "mixHash")]
-//    pub mix_hash: Option<H256>,
-//    /// Nonce
-//    pub nonce: Option<H64>,
-//}
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Block<TX> {
+    /// Hash of the block
+    pub hash: Option<Hash>,
+    /// Hash of the parent
+    #[serde(rename = "parentHash")]
+    pub parent_hash: Hash,
+    /// Hash of the uncles
+    #[serde(rename = "sha3Uncles")]
+    pub uncles_hash: Hash,
+    /// Miner/author's address.
+    #[serde(rename = "miner", default, deserialize_with = "null_to_default")]
+    pub author: Address,
+    /// State root hash
+    #[serde(rename = "stateRoot")]
+    pub state_root: Hash,
+    /// Transactions root hash
+    #[serde(rename = "transactionsRoot")]
+    pub transactions_root: Hash,
+    /// Transactions receipts root hash
+    #[serde(rename = "receiptsRoot")]
+    pub receipts_root: Hash,
+    /// Block number. None if pending.
+    pub number: Option<U64>,
+    /// Gas Used
+    #[serde(rename = "gasUsed")]
+    pub gas_used: Word,
+    /// Gas Limit
+    #[serde(rename = "gasLimit")]
+    pub gas_limit: Word,
+    /// Base fee per unit of gas (if past London)
+    #[serde(rename = "baseFeePerGas")]
+    pub base_fee_per_gas: Option<Word>,
+    /// Extra data
+    #[serde(rename = "extraData")]
+    pub extra_data: Bytes,
+    /// Logs bloom
+    #[serde(rename = "logsBloom")]
+    pub logs_bloom: Option<H2048>,
+    /// Timestamp
+    pub timestamp: Word,
+    /// Difficulty
+    pub difficulty: Word,
+    /// Total difficulty
+    #[serde(rename = "totalDifficulty")]
+    pub total_difficulty: Option<Word>,
+    /// Seal fields
+    #[serde(default, rename = "sealFields")]
+    pub seal_fields: Vec<Bytes>,
+    /// Uncles' hashes
+    pub uncles: Vec<Hash>,
+    /// Transactions
+    pub transactions: Vec<TX>,
+    /// Size in bytes
+    pub size: Option<Word>,
+    /// Mix Hash
+    #[serde(rename = "mixHash")]
+    pub mix_hash: Option<Hash>,
+    /// Nonce
+    pub nonce: Option<H64>,
+}
 
-/// TODO
-pub type Transaction = types::Transaction;
+impl<TX> Block<TX> {
+    /// TODO
+    pub fn mock() -> Self {
+        Self {
+            hash: Some(Hash::from([0u8; 32])),
+            parent_hash: Hash::from([0u8; 32]),
+            uncles_hash: Hash::from([0u8; 32]),
+            author: Address::from([0u8; 20]),
+            state_root: Hash::from([0u8; 32]),
+            transactions_root: Hash::from([0u8; 32]),
+            receipts_root: Hash::from([0u8; 32]),
+            number: Some(U64([123456u64])),
+            gas_used: Word::from(15_000_000u64),
+            gas_limit: Word::from(15_000_000u64),
+            base_fee_per_gas: Some(Word::from(97u64)),
+            extra_data: Bytes(Vec::new()),
+            logs_bloom: None,
+            timestamp: Word::from(1633398551u64),
+            difficulty: Word::from(0x200000u64),
+            total_difficulty: None,
+            seal_fields: Vec::new(),
+            uncles: Vec::new(),
+            transactions: Vec::new(),
+            size: None,
+            mix_hash: None,
+            nonce: Some(H64([0u8; 8])),
+        }
+    }
+}
+
+// /// TODO
+// pub type Transaction = types::Transaction;
+
+// From `web3/types/transaction.rs`
+/// The Transaction type returned from RPC calls.
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Transaction {
+    /// Hash
+    pub hash: Hash,
+    /// Nonce
+    pub nonce: Word,
+    /// Block hash. None when pending.
+    #[serde(rename = "blockHash")]
+    pub block_hash: Option<Hash>,
+    /// Block number. None when pending.
+    #[serde(rename = "blockNumber")]
+    pub block_number: Option<U64>,
+    /// Transaction Index. None when pending.
+    #[serde(rename = "transactionIndex")]
+    pub transaction_index: Option<Index>,
+    /// Sender
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<Address>,
+    /// Recipient (None when contract creation)
+    pub to: Option<Address>,
+    /// Transfered value
+    pub value: Word,
+    /// Gas Price
+    #[serde(rename = "gasPrice")]
+    pub gas_price: Word,
+    /// Gas amount
+    pub gas: Word,
+    /// Input data
+    pub input: Bytes,
+    /// ECDSA recovery id
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v: Option<U64>,
+    /// ECDSA signature r, 32 bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r: Option<Word>,
+    /// ECDSA signature s, 32 bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s: Option<Word>,
+    /// Raw transaction data
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<Bytes>,
+    /// Transaction type, Some(1) for AccessList transaction, None for Legacy
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub transaction_type: Option<U64>,
+    /// Access list
+    #[serde(
+        rename = "accessList",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub access_list: Option<AccessList>,
+}
+
+impl Transaction {
+    /// TODO
+    pub fn mock<TX>(block: &Block<TX>) -> Self {
+        Self {
+            hash: Hash::from([0u8; 32]),
+            nonce: Word::from([0u8; 32]),
+            block_hash: block.hash,
+            block_number: block.number,
+            transaction_index: Some(Index::from(0u64)),
+            from: Some(
+                Address::from_str("0x00000000000000000000000000000000c014ba5e")
+                    .unwrap(),
+            ),
+            to: Some(Address::zero()),
+            value: Word::from([0u8; 32]),
+            gas_price: Word::from([0u8; 32]),
+            gas: Word::from(1_000_000u64),
+            input: Bytes(Vec::new()),
+            v: Some(U64([0u64])),
+            r: Some(Word::from([0u8; 32])),
+            s: Some(Word::from([0u8; 32])),
+            raw: Some(Bytes(Vec::new())),
+            transaction_type: Some(U64([0u64])),
+            access_list: None,
+        }
+    }
+}
 
 /// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
@@ -189,13 +313,16 @@ pub struct GethExecStep {
     pub depth: u8,
     // pub(crate) error: &'a str,
     // stack is in hex 0x prefixed
-    pub stack: Vec<Word>,
+    // pub stack: Vec<Word>,
+    pub stack: Stack,
     // memory is in chunks of 32 bytes, in hex
+    // pub memory: Vec<Word>,
     #[serde(default)]
-    pub memory: Vec<Word>,
+    pub memory: Memory,
     // storage is hex -> hex
     #[serde(default)]
-    pub storage: HashMap<Word, Word>,
+    // pub storage: HashMap<Word, Word>,
+    pub storage: Storage,
 }
 
 /// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
@@ -246,6 +373,7 @@ macro_rules! word_map {
 mod tests {
     use super::*;
     use crate::evm::opcodes::ids::OpcodeId;
+    use crate::{memory::Memory, stack::Stack};
 
     #[test]
     fn deserialize_geth_exec_trace2() {
@@ -300,9 +428,9 @@ mod tests {
                         gas: Gas(22705),
                         gas_cost: GasCost(3),
                         depth: 1,
-                        stack: vec![],
-                        storage: word_map!(),
-                        memory: vec![],
+                        stack: Stack::new(),
+                        storage: Storage(word_map!()),
+                        memory: Memory::new(),
                     },
                     GethExecStep {
                         pc: ProgramCounter(163),
@@ -310,17 +438,17 @@ mod tests {
                         gas: Gas(5217),
                         gas_cost: GasCost(2100),
                         depth: 1,
-                        stack: vec![
+                        stack: Stack(vec![
                             word!("0x1003e2d2"),
                             word!("0x2a"),
                             word!("0x0")
-                        ],
-                        storage: word_map!("0x0" => "0x6f"),
-                        memory: vec![
+                        ]),
+                        storage: Storage(word_map!("0x0" => "0x6f")),
+                        memory: Memory::from(vec![
                             word!("0x0"),
                             word!("0x0"),
                             word!("0x080")
-                        ],
+                        ]),
                     }
                 ],
             }
@@ -369,15 +497,12 @@ mod eth_types_test {
             "Err(Invalid character 'X' at position 38)",
         );
 
-        // TODO
-        /*
         // Test to_word
         assert_eq!(
             Address::from_str("0x0000000000000000000000000000000000000001")
                 .unwrap()
                 .to_word(),
-            EvmWord::from(1u32),
+            Word::from(1u32),
         )
-        */
     }
 }
