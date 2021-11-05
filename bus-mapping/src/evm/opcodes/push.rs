@@ -1,11 +1,8 @@
-/*
 use crate::circuit_input_builder::CircuitInputStateRef;
 use crate::eth_types::GethExecStep;
-use core::ops::Deref;
 // Port this to a macro if possible to avoid defining all the PushN
 use super::Opcode;
 use crate::{
-    exec_trace::{ExecutionStep, TraceContext},
     operation::{StackOp, RW},
     Error,
 };
@@ -44,11 +41,13 @@ mod push_tests {
     use super::*;
     use crate::{
         bytecode,
+        circuit_input_builder::{
+            CircuitInputBuilder, ExecStep, MockBlock, Transaction,
+            TransactionContext,
+        },
         eth_types::Word,
-        evm::{GasCost, OpcodeId, Stack, StackAddress, Storage},
-        external_tracer, BlockConstants, ExecutionTrace,
+        evm::StackAddress,
     };
-    use pasta_curves::pallas::Scalar;
 
     #[test]
     fn push1_opcode_impl() -> Result<(), Error> {
@@ -58,62 +57,47 @@ mod push_tests {
             STOP
         };
 
-        let block_ctants = BlockConstants::default();
-
         // Get the execution steps from the external tracer
-        let obtained_steps = &external_tracer::trace(&block_ctants, &code)?
-            [code.get_pos("start")..];
+        let mut mock = MockBlock::new_single_tx_trace_code(&code).unwrap();
+        mock.geth_trace.struct_logs =
+            mock.geth_trace.struct_logs[code.get_pos("start")..].to_vec();
 
-        // Obtained trace computation
-        let obtained_exec_trace =
-            ExecutionTrace::new(obtained_steps.to_vec(), block_ctants)?;
+        let mut builder = CircuitInputBuilder::new(
+            mock.eth_block.clone(),
+            mock.block_ctants.clone(),
+        );
+        builder.handle_tx(&mock.eth_tx, &mock.geth_trace).unwrap();
 
-        let mut ctx = TraceContext::new();
+        let mut test_builder =
+            CircuitInputBuilder::new(mock.eth_block, mock.block_ctants.clone());
+        let mut tx = Transaction::new(&mock.eth_tx);
+        let mut tx_ctx = TransactionContext::new(&mock.eth_tx);
 
-        // Start from the same pc and gas limit
-        let mut pc = obtained_steps[0].pc();
-        let gas = obtained_steps[0].gas();
-
-        // The memory is the same in both steps as none of them edits the
-        // memory of the EVM.
-        let mem_map = obtained_steps[0].memory.clone();
-
-        // Generate Step1 corresponding to PUSH1 80
-        let mut step_1 = ExecutionStep {
-            memory: mem_map,
-            stack: Stack::empty(),
-            storage: Storage::empty(),
-            instruction: OpcodeId::PUSH1,
-            gas,
-            gas_cost: GasCost::FASTEST,
-            depth: 1u8,
-            pc: pc.inc_pre(),
-            gc: ctx.gc,
-            bus_mapping_instance: vec![],
-        };
+        // Generate step corresponding to PUSH1 80
+        let mut step = ExecStep::new(
+            &mock.geth_trace.struct_logs[0],
+            test_builder.block_ctx.gc,
+        );
+        let mut state_ref =
+            test_builder.state_ref(&mut tx, &mut tx_ctx, &mut step);
 
         // Add StackOp associated to the 0x80 push at the latest Stack pos.
-        ctx.push_op(
-            &mut step_1,
-            StackOp::new(
-                RW::WRITE,
-                StackAddress::from(1023),
-                Word::from(0x80u8),
-            ),
-        );
+        state_ref.push_op(StackOp::new(
+            RW::WRITE,
+            StackAddress::from(1023),
+            Word::from(0x80u8),
+        ));
+        tx.steps_mut().push(step);
+        test_builder.block.txs_mut().push(tx);
 
         // Compare first step bus mapping instance
         assert_eq!(
-            obtained_exec_trace[0].bus_mapping_instance(),
-            step_1.bus_mapping_instance()
+            builder.block.txs()[0].steps()[0].bus_mapping_instance,
+            test_builder.block.txs()[0].steps()[0].bus_mapping_instance
         );
-        // Compare first step entirely
-        assert_eq!(obtained_exec_trace[0], step_1);
-
         // Compare containers
-        assert_eq!(obtained_exec_trace.ctx.container, ctx.container);
+        assert_eq!(builder.block.container, test_builder.block.container);
 
         Ok(())
     }
 }
-*/

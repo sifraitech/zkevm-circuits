@@ -5,10 +5,7 @@ pub(crate) mod opcodes;
 pub mod stack;
 pub mod storage;
 
-use crate::error::{EthAddressParsingError, EvmWordParsingError};
-use core::str::FromStr;
-use serde::{de, Deserialize, Serialize};
-use std::fmt;
+use serde::{Deserialize, Serialize};
 pub use {
     memory::{Memory, MemoryAddress},
     opcodes::{ids::OpcodeId, Opcode},
@@ -275,7 +272,7 @@ impl EthAddress {
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize,
 )]
-pub struct Gas(pub(crate) u64);
+pub struct Gas(pub u64);
 
 /// Defines the gas consumed by an
 /// [`ExecutionStep`](crate::exec_trace::ExecutionStep).
@@ -335,9 +332,10 @@ impl From<u64> for GasCost {
 
 #[cfg(test)]
 mod evm_tests {
-    use super::*;
+    // use super::*;
     use crate::eth_types::Word;
     use crate::Error;
+    use std::str::FromStr;
 
     #[test]
     fn evmword_bytes_serialization_trip() -> Result<(), Error> {

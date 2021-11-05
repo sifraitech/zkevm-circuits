@@ -1,10 +1,7 @@
 use super::Opcode;
 use crate::circuit_input_builder::CircuitInputStateRef;
 use crate::eth_types::GethExecStep;
-use crate::{
-    exec_trace::{ExecutionStep, TraceContext},
-    Error,
-};
+use crate::Error;
 
 /// Placeholder structure used to implement [`Opcode`] trait over it corresponding to the
 /// [`OpcodeId::STOP`](crate::evm::OpcodeId::STOP) `OpcodeId`.

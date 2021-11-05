@@ -45,8 +45,10 @@
 //! all of the Memory, Stack and Storage ops performed by the provided trace.
 //!
 //! ```rust
-//! use bus_mapping::{ExecutionTrace, ExecutionStep, BlockConstants, Error};
-//! use bus_mapping::eth_types::{Address, Word, Hash};
+//! use bus_mapping::{BlockConstants, Error};
+//! use bus_mapping::evm::Gas;
+//! use bus_mapping::eth_types::{self, Address, Word, Hash, U64, GethExecTrace, GethExecStep};
+//! use bus_mapping::circuit_input_builder::CircuitInputBuilder;
 //! use pasta_curves::arithmetic::FieldExt;
 //!
 //! let input_trace = r#"
@@ -101,24 +103,34 @@
 //!     Hash::zero(),
 //!     Address::zero(),
 //!     Word::zero(),
-//!     Word::zero(),
+//!     U64::zero(),
 //!     Word::zero(),
 //!     Word::zero(),
 //!     Word::zero(),
 //!     Word::zero(),
 //! );
 //!
-//! // Here we have the ExecutionTrace completelly formed with all of the data to witness structured.
-//! let obtained_exec_trace = ExecutionTrace::from_trace_bytes(
-//!     input_trace.as_bytes(),
-//!     block_ctants,
-//! ).expect("Error on trace generation");
+//! // We use some mock data as context for the trace
+//! let eth_block = eth_types::Block::mock();
+//! let eth_tx = eth_types::Transaction::mock(&eth_block);
+//!
+//! let mut builder =
+//!     CircuitInputBuilder::new(eth_block, block_ctants);
+//!
+//! let geth_steps: Vec<GethExecStep> = serde_json::from_str(input_trace).unwrap();
+//! let geth_trace = GethExecTrace {
+//!     gas: Gas(eth_tx.gas.as_u64()),
+//!     failed: false,
+//!     struct_logs: geth_steps,
+//! };
+//! // Here we update the circuit input with the data from the transaction trace.
+//! builder.handle_tx(&eth_tx, &geth_trace).unwrap();
 //!
 //! // Get an ordered vector with all of the Stack operations of this trace.
-//! let stack_ops = obtained_exec_trace.sorted_stack_ops();
+//! let stack_ops = builder.block.container.sorted_stack();
 //!
 //! // You can also iterate over the steps of the trace and witness the EVM Proof.
-//! obtained_exec_trace.steps().iter();
+//! builder.block.txs()[0].steps().iter();
 //! ```
 //!
 //! Assume we have the following trace:
@@ -205,9 +217,10 @@ pub mod operation;
 #[macro_use]
 pub mod bytecode;
 pub mod circuit_input_builder;
+#[macro_use]
 pub mod eth_types;
 pub mod util;
 pub use error::Error;
-pub use exec_trace::{BlockConstants, ExecutionStep, ExecutionTrace};
+pub use exec_trace::BlockConstants;
 // /// Gas is exported as a type alias for u64
 // pub type Gas = u64;

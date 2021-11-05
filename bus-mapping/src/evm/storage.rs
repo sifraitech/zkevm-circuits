@@ -1,7 +1,7 @@
 //! Doc this
 use crate::eth_types::Word;
 use crate::Error;
-use serde::{de, Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Represents a snapshot of the EVM stack state at a certain

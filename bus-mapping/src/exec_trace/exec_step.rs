@@ -1,17 +1,16 @@
+// TODO: Remove this
 // Doc this
 
+/*
 use super::OperationRef;
 use crate::evm::{
     Gas, GasCost, GlobalCounter, Memory, ProgramCounter, Stack, Storage,
 };
-use crate::{
-    error::Error,
-    eth_types::Word,
-    evm::{opcodes::Opcode, OpcodeId},
-    exec_trace::TraceContext,
-};
+use crate::{eth_types::Word, evm::OpcodeId};
 use std::collections::HashMap;
+*/
 
+/*
 /// Represents a single step of an [`ExecutionTrace`](super::ExecutionTrace). It
 /// contains all of the information relative to this step:
 /// - [`Memory`] view at current execution step.
@@ -147,3 +146,4 @@ impl ExecutionStep {
     //     instruction.gen_associated_ops(ctx, self, next_steps)
     // }
 }
+*/

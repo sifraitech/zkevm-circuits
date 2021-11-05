@@ -12,28 +12,20 @@ use core::fmt::Debug;
 
 // mock
 #[derive(Debug)]
-pub struct ExecutionStep {
+pub struct ExecStep {
     pub op: OpcodeId,
     pub gc: GlobalCounter,
     pub bus_mapping_instance: Vec<OperationRef>,
 }
 
-impl ExecutionStep {
+impl ExecStep {
     pub fn new(geth_step: &GethExecStep, gc: GlobalCounter) -> Self {
-        Self {
+        ExecStep {
             op: geth_step.op,
             gc,
             bus_mapping_instance: Vec::new(),
         }
     }
-    // pub fn gen_associated_ops(
-    //     &mut self,
-    //     state_ref: &mut CircuitInputStateRef,
-    //     next_steps: &[GethExecStep],
-    // ) -> Result<(), Error> {
-    //     self.op
-    //         .gen_associated_ops(&mut self, &mut state_ref, next_steps)
-    // }
 }
 
 #[derive(Debug)]
@@ -53,12 +45,12 @@ impl BlockContext {
 pub struct Block {
     pub constants: BlockConstants,
     pub container: OperationContainer,
-    pub txs: Vec<Transaction>,
+    txs: Vec<Transaction>,
 }
 
 impl Block {
     pub fn new<TX>(
-        eth_block: &eth_types::Block<TX>,
+        _eth_block: &eth_types::Block<TX>,
         constants: BlockConstants,
     ) -> Self {
         Self {
@@ -68,39 +60,56 @@ impl Block {
         }
     }
 
-    // /// TODO
-    // pub fn txs(&self) -> &[Transaction] {
-    //     &self.txs
-    // }
+    /// TODO
+    pub fn txs(&self) -> &[Transaction] {
+        &self.txs
+    }
+
+    #[cfg(test)]
+    pub fn txs_mut(&mut self) -> &mut Vec<Transaction> {
+        &mut self.txs
+    }
+}
+
+#[derive(Debug)]
+pub struct CallContext {
+    address: Address,
 }
 
 #[derive(Debug)]
 pub struct TransactionContext {
-    address: Address,
+    call_ctxs: Vec<CallContext>,
 }
 
 impl TransactionContext {
     pub fn new(eth_tx: &eth_types::Transaction) -> Self {
-        Self {
-            address: Address::from([0; 20]),
+        let mut call_ctxs = Vec::new();
+        if let Some(addr) = eth_tx.to {
+            call_ctxs.push(CallContext { address: addr });
         }
+        Self { call_ctxs }
     }
 }
 
 #[derive(Debug)]
 pub struct Transaction {
-    pub steps: Vec<ExecutionStep>,
+    steps: Vec<ExecStep>,
 }
 
 impl Transaction {
-    pub fn new(eth_tx: &eth_types::Transaction) -> Self {
+    pub fn new(_eth_tx: &eth_types::Transaction) -> Self {
         Self { steps: Vec::new() }
     }
 
-    // /// TODO
-    // pub fn steps(&self) -> &[ExecutionStep] {
-    //     &self.steps
-    // }
+    /// TODO
+    pub fn steps(&self) -> &[ExecStep] {
+        &self.steps
+    }
+
+    #[cfg(test)]
+    pub fn steps_mut(&mut self) -> &mut Vec<ExecStep> {
+        &mut self.steps
+    }
 }
 
 pub struct CircuitInputStateRef<'a> {
@@ -108,13 +117,13 @@ pub struct CircuitInputStateRef<'a> {
     pub block_ctx: &'a mut BlockContext,
     pub tx: &'a mut Transaction,
     pub tx_ctx: &'a mut TransactionContext,
-    pub step: &'a mut ExecutionStep,
+    pub step: &'a mut ExecStep,
 }
 
 impl<'a> CircuitInputStateRef<'a> {
     /// Push an [`Operation`] into the [`OperationContainer`] with the next [`GlobalCounter`] and
     /// then adds a reference to the stored operation ([`OperationRef`]) inside the bus-mapping
-    /// instance of the given [`ExecutionStep`].  Then increase the internal [`GlobalCounter`] by
+    /// instance of the current [`ExecStep`].  Then increase the block_ctx [`GlobalCounter`] by
     /// one.
     pub fn push_op<T: Op>(&mut self, op: T) {
         let op_ref = self
@@ -144,9 +153,9 @@ impl<'a> CircuitInputBuilder {
 
     pub fn state_ref(
         &'a mut self,
-        mut tx: &'a mut Transaction,
-        mut tx_ctx: &'a mut TransactionContext,
-        mut step: &'a mut ExecutionStep,
+        tx: &'a mut Transaction,
+        tx_ctx: &'a mut TransactionContext,
+        step: &'a mut ExecStep,
     ) -> CircuitInputStateRef {
         CircuitInputStateRef {
             block: &mut self.block,
@@ -165,7 +174,7 @@ impl<'a> CircuitInputBuilder {
         let mut tx = Transaction::new(&eth_tx);
         let mut tx_ctx = TransactionContext::new(&eth_tx);
         for (index, geth_step) in geth_trace.struct_logs.iter().enumerate() {
-            let mut step = ExecutionStep::new(&geth_step, self.block_ctx.gc);
+            let mut step = ExecStep::new(&geth_step, self.block_ctx.gc);
             let mut state_ref = self.state_ref(&mut tx, &mut tx_ctx, &mut step);
             geth_step.op.gen_associated_ops(
                 &mut state_ref,
@@ -175,5 +184,74 @@ impl<'a> CircuitInputBuilder {
         }
         self.block.txs.push(tx);
         Ok(())
+    }
+}
+
+use crate::bytecode::Bytecode;
+use crate::evm::Gas;
+use crate::external_tracer;
+
+/// MockBlock is a type that contains all the information from a block required to build the
+/// circuit inputs.
+pub struct MockBlock {
+    pub eth_block: eth_types::Block<()>,
+    pub eth_tx: eth_types::Transaction,
+    pub block_ctants: BlockConstants,
+    pub geth_trace: eth_types::GethExecTrace,
+}
+
+impl MockBlock {
+    /// Create a new block with a single tx that executes the code passed by argument.  The trace
+    /// will be generated automatically with the external_tracer from the code.
+    pub fn new_single_tx_trace_code(code: &Bytecode) -> Result<Self, Error> {
+        let eth_block = eth_types::Block::mock();
+        let eth_tx = eth_types::Transaction::mock(&eth_block);
+        let block_ctants = BlockConstants::from_eth_block(
+            &eth_block,
+            &eth_types::Word::one(),
+            &crate::address!("0x00000000000000000000000000000000c014ba5e"),
+        );
+        let tracer_tx = external_tracer::Transaction::from_eth_tx(&eth_tx);
+        let tracer_account = external_tracer::Account::mock(&code);
+        let geth_trace = eth_types::GethExecTrace {
+            gas: Gas(eth_tx.gas.as_u64()),
+            failed: false,
+            struct_logs: external_tracer::trace(
+                &block_ctants,
+                &tracer_tx,
+                &[tracer_account],
+            )?
+            .to_vec(),
+        };
+        Ok(Self {
+            eth_block,
+            eth_tx,
+            block_ctants,
+            geth_trace,
+        })
+    }
+
+    /// Create a new block with a single tx that leads to the geth_steps passed by argument.
+    pub fn new_single_tx_geth_steps(
+        geth_steps: Vec<eth_types::GethExecStep>,
+    ) -> Self {
+        let eth_block = eth_types::Block::mock();
+        let eth_tx = eth_types::Transaction::mock(&eth_block);
+        let block_ctants = BlockConstants::from_eth_block(
+            &eth_block,
+            &eth_types::Word::one(),
+            &crate::address!("0x00000000000000000000000000000000c014ba5e"),
+        );
+        let geth_trace = eth_types::GethExecTrace {
+            gas: Gas(eth_tx.gas.as_u64()),
+            failed: false,
+            struct_logs: geth_steps,
+        };
+        Self {
+            eth_block,
+            eth_tx,
+            block_ctants,
+            geth_trace,
+        }
     }
 }

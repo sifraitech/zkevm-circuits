@@ -57,19 +57,18 @@ impl Opcode for Sload {
 #[cfg(test)]
 mod sload_tests {
     use super::*;
-    use crate::eth_types::address;
     use crate::{
         bytecode,
         circuit_input_builder::{
-            CircuitInputBuilder, ExecutionStep, Transaction, TransactionContext,
+            CircuitInputBuilder, ExecStep, MockBlock, Transaction,
+            TransactionContext,
         },
-        eth_types::{self, GethExecTrace, Word},
-        evm::{Gas, GasCost, Memory, OpcodeId, Stack, StackAddress, Storage},
-        external_tracer as tracer, BlockConstants, ExecutionTrace,
+        eth_types::Word,
+        evm::StackAddress,
     };
-    use pasta_curves::pallas::Scalar;
-    use std::collections::HashMap;
-    use std::iter::FromIterator;
+    // use pasta_curves::pallas::Scalar;
+    // use std::collections::HashMap;
+    // use std::iter::FromIterator;
 
     #[test]
     fn sload_opcode_impl() -> Result<(), Error> {
@@ -87,62 +86,29 @@ mod sload_tests {
         };
 
         // Get the execution steps from the external tracer
-        // Obtained trace computation
-        let eth_block = eth_types::Block::mock();
-        let eth_tx = eth_types::Transaction::mock(&eth_block);
-        let block_ctants = BlockConstants::from_eth_block(
-            &eth_block,
-            &Word::one(),
-            &address!("0x00000000000000000000000000000000c014ba5e"),
-        );
-        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
-        let tracer_account = tracer::Account::mock(&code);
-        let geth_trace = GethExecTrace {
-            gas: Gas(eth_tx.gas.as_u64()),
-            failed: false,
-            struct_logs: tracer::trace(
-                &block_ctants,
-                &tracer_tx,
-                &[tracer_account],
-            )?[code.get_pos("start")..]
-                .to_vec(),
-        };
-        let obtained_steps = &geth_trace.struct_logs;
+        let mut mock = MockBlock::new_single_tx_trace_code(&code).unwrap();
+        mock.geth_trace.struct_logs =
+            mock.geth_trace.struct_logs[code.get_pos("start")..].to_vec();
 
-        let mut builder =
-            CircuitInputBuilder::new(eth_block.clone(), block_ctants.clone());
-        builder.handle_tx(&eth_tx, &geth_trace).unwrap();
+        let mut builder = CircuitInputBuilder::new(
+            mock.eth_block.clone(),
+            mock.block_ctants.clone(),
+        );
+        builder.handle_tx(&mock.eth_tx, &mock.geth_trace).unwrap();
 
         let mut test_builder =
-            CircuitInputBuilder::new(eth_block, block_ctants.clone());
-        let mut tx = Transaction::new(&eth_tx);
-        let mut tx_ctx = TransactionContext::new(&eth_tx);
+            CircuitInputBuilder::new(mock.eth_block, mock.block_ctants.clone());
+        let mut tx = Transaction::new(&mock.eth_tx);
+        let mut tx_ctx = TransactionContext::new(&mock.eth_tx);
 
-        // Start from the same pc and gas limit
-        let mut pc = geth_trace.struct_logs[0].pc;
-        let gas = geth_trace.struct_logs[0].gas;
-
-        // Generate Step1 corresponding to SLOAD
-        // let mut step_1 = ExecutionStep {
-        //     memory: Memory::new(),
-        //     stack: Stack(vec![Word(0x0)]),
-        //     storage: Storage(word_map!("0x0" => "0x6f")),
-        //     instruction: OpcodeId::SLOAD,
-        //     gas,
-        //     gas_cost: GasCost::WARM_STORAGE_READ_COST,
-        //     depth: 1u8,
-        //     pc: pc.inc_pre(),
-        //     gc: ctx.gc,
-        //     bus_mapping_instance: vec![],
-        // };
-
-        // Add StackOp associated to the stack pop.
-        let mut step = ExecutionStep::new(
-            &geth_trace.struct_logs[0],
+        // Generate step corresponding to SLOAD
+        let mut step = ExecStep::new(
+            &mock.geth_trace.struct_logs[0],
             test_builder.block_ctx.gc,
         );
         let mut state_ref =
             test_builder.state_ref(&mut tx, &mut tx_ctx, &mut step);
+        // Add StackOp associated to the stack pop.
         state_ref.push_op(StackOp::new(
             RW::READ,
             StackAddress::from(1023),
@@ -162,14 +128,13 @@ mod sload_tests {
             StackAddress::from(1023),
             Word::from(0x6fu32),
         ));
-        tx.steps.push(step);
-        test_builder.block.txs.push(tx);
+        tx.steps_mut().push(step);
+        test_builder.block.txs_mut().push(tx);
 
         assert_eq!(
-            builder.block.txs[0].steps[0].bus_mapping_instance,
-            test_builder.block.txs[0].steps[0].bus_mapping_instance
+            builder.block.txs()[0].steps()[0].bus_mapping_instance,
+            test_builder.block.txs()[0].steps()[0].bus_mapping_instance
         );
-        // assert_eq!(obtained_exec_trace[0], step_1);
         assert_eq!(builder.block.container, test_builder.block.container);
 
         Ok(())

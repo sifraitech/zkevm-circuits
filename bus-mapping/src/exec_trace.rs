@@ -4,19 +4,19 @@ pub(crate) mod exec_step;
 pub(crate) mod parsing;
 use crate::eth_types::Address;
 use crate::eth_types::{Block, Hash, Word};
-use crate::operation::{
-    container::OperationContainer, GlobalCounter, Op, Operation,
-};
-use crate::operation::{MemoryOp, StackOp, StorageOp, Target};
-use crate::Error;
-use core::ops::{Index, IndexMut};
-pub use exec_step::ExecutionStep;
-pub(crate) use parsing::ParsedExecutionStep;
-use pasta_curves::arithmetic::FieldExt;
+// use crate::operation::{
+//     container::OperationContainer, GlobalCounter, Op, Operation,
+// };
+use crate::operation::Target;
+// use crate::Error;
+// use core::ops::{Index, IndexMut};
+// pub use exec_step::ExecutionStep;
+// pub(crate) use parsing::ParsedExecutionStep;
+// use pasta_curves::arithmetic::FieldExt;
+use crate::eth_types::U64;
 use serde::Serialize;
-use std::convert::TryFrom;
+// use std::convert::TryFrom;
 use std::str::FromStr;
-use web3::types::U64;
 
 /// Definition of all of the constants related to an Ethereum block and
 /// therefore, related with an [`ExecutionTrace`].
@@ -142,6 +142,7 @@ impl BlockConstants {
     }
 }
 
+/*
 /// Context of a trace, which mutates at every ExecutionStep and provides both a context of
 /// execution and an accumulation of operations we need to generate the witness.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +179,9 @@ impl TraceContext {
             .push(self.container.insert(Operation::new(self.gc.inc_pre(), op)));
     }
 }
+*/
 
+/*
 /// Result of the parsing of an EVM execution trace.
 /// This structure is the centre of the crate and is intended to be the only
 /// entry point to it. The `ExecutionTrace` provides three main actions:
@@ -333,6 +336,7 @@ impl ExecutionTrace {
         &mut self.ctx.container
     }
 }
+*/
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The target and index of an `Operation` in the context of an

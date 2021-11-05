@@ -1,16 +1,17 @@
+// TODO: Remove this
 //! Doc this
 
+/*
 use crate::eth_types::Word;
 use crate::evm::{Gas, GasCost, ProgramCounter};
-use crate::ExecutionStep;
-use crate::{
-    error::{Error, EvmWordParsingError},
-    evm::{memory::Memory, stack::Stack, OpcodeId},
-};
+// use crate::ExecutionStep;
+use crate::{error::Error, evm::OpcodeId};
 use core::{convert::TryFrom, str::FromStr};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+*/
 
+/*
 impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
     type Error = Error;
 
@@ -61,6 +62,7 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
         ))
     }
 }
+*/
 
 // #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 // #[doc(hidden)]
@@ -106,6 +108,7 @@ impl<'a> TryFrom<&ParsedExecutionStep<'a>> for ExecutionStep {
 //     pub struct_logs: Vec<GethExecStep>,
 // }
 
+/*
 /// Helper structure whose only purpose is to serve as a De/Serialization
 /// derivation guide for the serde Derive macro.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -121,6 +124,7 @@ pub(crate) struct ParsedExecutionStep<'a> {
     pub(crate) memory: Option<Vec<&'a str>>,
     pub(crate) storage: Option<HashMap<&'a str, &'a str>>,
 }
+*/
 
 /*
 #[cfg(test)]

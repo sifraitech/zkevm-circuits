@@ -6,7 +6,7 @@ use core::ops::{
     Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign,
 };
 use core::str::FromStr;
-use serde::{de, Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Represents a `MemoryAddress` of the EVM.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]

@@ -4,27 +4,18 @@ use crate::evm::{memory::Memory, stack::Stack, storage::Storage};
 use crate::evm::{Gas, GasCost, OpcodeId, ProgramCounter};
 use pasta_curves::arithmetic::FieldExt;
 use serde::{de, Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::str::FromStr;
-use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U64};
+pub use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U64};
 
 use subtle::CtOption;
 // use ethereum_types::{H160, H2048, H256, H64, U256, U64};
 
-/*
 /// TODO
-pub trait ToField {
+// TODO Rename to ToScalar
+pub trait ToScalar<F: FieldExt> {
     /// TODO
-    type Field: FieldExt;
-    /// TODO
-    fn to_field(&self) -> Self::Field;
-}
-*/
-
-/// TODO
-pub trait ToField<F: FieldExt> {
-    /// TODO
-    fn to_field(&self) -> CtOption<F>;
+    fn to_scalar(&self) -> CtOption<F>;
 }
 
 uint::construct_uint! {
@@ -58,8 +49,8 @@ impl Serialize for U256 {
     }
 }
 
-impl<F: FieldExt> ToField<F> for U256 {
-    fn to_field(&self) -> CtOption<F> {
+impl<F: FieldExt> ToScalar<F> for U256 {
+    fn to_scalar(&self) -> CtOption<F> {
         let mut bytes = [0u8; 32];
         self.to_little_endian(&mut bytes);
         F::from_bytes(&bytes)
@@ -101,8 +92,8 @@ impl ToWord for Address {
     }
 }
 
-impl<F: FieldExt> ToField<F> for Address {
-    fn to_field(&self) -> CtOption<F> {
+impl<F: FieldExt> ToScalar<F> for Address {
+    fn to_scalar(&self) -> CtOption<F> {
         let mut bytes = [0u8; 32];
         bytes[32 - Self::len_bytes()..].copy_from_slice(self.as_bytes());
         F::from_bytes(&bytes)
@@ -340,32 +331,35 @@ pub struct GethExecTrace {
 
 // TODO: Move this test macros to a crate, export them, and use them in all tests
 
-// #[cfg(test)]
+#[macro_export]
+/// TODO: Panics
 macro_rules! address {
     ($addr_hex:expr) => {{
         use std::str::FromStr;
-        Address::from_str(&$addr_hex).expect("invalid hex Address")
+        $crate::eth_types::Address::from_str(&$addr_hex)
+            .expect("invalid hex Address")
     }};
 }
-pub(crate) use address;
 
-// #[cfg(test)]
+#[macro_export]
+/// TODO: Panics
 macro_rules! word {
     ($word_hex:expr) => {
-        Word::from_str_radix(&$word_hex, 16).expect("invalid hex Word")
+        $crate::eth_types::Word::from_str_radix(&$word_hex, 16)
+            .expect("invalid hex Word")
     };
 }
-pub(crate) use word;
 
-// #[cfg(test)]
+#[macro_export]
+/// TODO: Panics
 macro_rules! word_map {
     () => {
-        HashMap::new()
+        std::collections::HashMap::new()
     };
     ($($key_hex:expr => $value_hex:expr),*) => {
         {
             use std::iter::FromIterator;
-            HashMap::from_iter([(
+            std::collections::HashMap::from_iter([(
                     $(word!($key_hex), word!($value_hex)),*
             )])
         }
@@ -462,7 +456,6 @@ mod tests {
 #[cfg(test)]
 mod eth_types_test {
     use super::*;
-    use crate::Error;
 
     #[test]
     fn address() {

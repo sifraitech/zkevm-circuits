@@ -1,11 +1,11 @@
 //! This module generates traces by connecting to an external tracer
+use crate::bytecode::Bytecode;
 use crate::eth_types::{self, Address, GethExecStep, Word};
+use crate::BlockConstants;
 use crate::Error;
-use crate::{bytecode::Bytecode, BlockConstants};
 use geth_utils;
 // use pasta_curves::arithmetic::FieldExt;
 use serde::Serialize;
-use std::str::FromStr;
 
 /// Definition of all of the constants related to an Ethereum transaction.
 #[derive(Debug, Clone, Serialize)]
@@ -28,10 +28,9 @@ impl Transaction {
     /// TODO
     pub fn mock() -> Self {
         Transaction {
-            origin: Address::from_str(
-                "0x00000000000000000000000000000000c014ba5e",
-            )
-            .unwrap(),
+            origin: crate::address!(
+                "0x00000000000000000000000000000000c014ba5e"
+            ),
             gas_limit: Word::from(1_000_000u64),
             target: Address::zero(),
         }
