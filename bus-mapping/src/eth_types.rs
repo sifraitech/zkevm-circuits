@@ -4,26 +4,28 @@ use crate::evm::{memory::Memory, stack::Stack, storage::Storage};
 use crate::evm::{Gas, GasCost, OpcodeId, ProgramCounter};
 use pasta_curves::arithmetic::FieldExt;
 use serde::{de, Deserialize, Deserializer, Serialize};
-// use std::collections::HashMap;
 use std::str::FromStr;
 pub use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U64};
 
 use subtle::CtOption;
-// use ethereum_types::{H160, H2048, H256, H64, U256, U64};
 
-/// TODO
-// TODO Rename to ToScalar
+/// Trait used to define types that can be converted to a 256 bit scalar value.
 pub trait ToScalar<F: FieldExt> {
-    /// TODO
+    /// Convert the type to a scalar value.
     fn to_scalar(&self) -> CtOption<F>;
 }
 
-uint::construct_uint! {
-    /// 256-bit unsigned integer.
-    pub struct U256(4);
+// We use our own declaration of U256 in order to implement a custom deserializer that can parse
+// U256 when returned by structLogs fields in geth debug_trace* methods, which don't contain the
+// `0x` prefix.
+#[allow(clippy::all)]
+mod uint_types {
+    uint::construct_uint! {
+        /// 256-bit unsigned integer.
+        pub struct U256(4);
+    }
 }
-
-// impl_serde::impl_uint_serde!(U256, 4);
+pub use uint_types::U256;
 
 impl<'de> Deserialize<'de> for U256 {
     fn deserialize<D>(deserializer: D) -> Result<U256, D::Error>
@@ -58,7 +60,7 @@ impl<F: FieldExt> ToScalar<F> for U256 {
 }
 
 impl U256 {
-    /// TODO
+    /// Encode the value as byte array in big endian.
     pub fn to_be_bytes(&self) -> [u8; 32] {
         let mut bytes = [0u8; 32];
         self.to_big_endian(&mut bytes);
@@ -66,23 +68,20 @@ impl U256 {
     }
 }
 
-/// TODO
-// pub type Word = types::U256;
+/// Ethereum Word (256 bits).
 pub type Word = U256;
 
-/// TODO
+/// Ethereum Hash (160 bits).
 pub type Hash = types::H256;
 
-/// TODO
+/// Trait used to convert a type to a [`Word`].
 pub trait ToWord {
-    /// TODO
+    /// Convert the type to a [`Word`].
     fn to_word(&self) -> Word;
 }
 
-/// TODO
-// pub type Address = types::Address;
+/// Ethereum Address (160 bits).
 pub use types::Address;
-// pub type Address = H160;
 
 impl ToWord for Address {
     fn to_word(&self) -> Word {
@@ -109,11 +108,9 @@ where
     Ok(option.unwrap_or_default())
 }
 
-// pub type Block = types::Block<Transaction>;
-
-// From `web3/types/block.rs`
-/// The block type returned from RPC calls.
+/// The block type returned from geth RPC calls.
 /// This is generic over a `TX` type.
+/// Imported from `web3/types/block.rs`
 #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Block<TX> {
     /// Hash of the block
@@ -206,11 +203,8 @@ impl Block<()> {
     }
 }
 
-// /// TODO
-// pub type Transaction = types::Transaction;
-
-// From `web3/types/transaction.rs`
-/// The Transaction type returned from RPC calls.
+/// The Transaction type returned from geth RPC calls.
+/// Imported from `web3/types/transaction.rs`
 #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Transaction {
     /// Hash
@@ -265,7 +259,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// TODO
+    /// Generate a new mock transaction with preloaded data, useful for tests.
     pub fn mock<TX>(block: &Block<TX>) -> Self {
         Self {
             hash: Hash::from([0u8; 32]),
@@ -292,7 +286,8 @@ impl Transaction {
     }
 }
 
-/// TODO Corresponds to `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
+/// The execution step type returned by geth RPC debug_trace* methods.   Corresponds to
+/// `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
 pub struct GethExecStep {
@@ -302,29 +297,24 @@ pub struct GethExecStep {
     #[serde(alias = "gasCost")]
     pub gas_cost: GasCost,
     pub depth: u8,
-    // pub(crate) error: &'a str,
     // stack is in hex 0x prefixed
-    // pub stack: Vec<Word>,
     pub stack: Stack,
     // memory is in chunks of 32 bytes, in hex
-    // pub memory: Vec<Word>,
     #[serde(default)]
     pub memory: Memory,
     // storage is hex -> hex
     #[serde(default)]
-    // pub storage: HashMap<Word, Word>,
     pub storage: Storage,
 }
 
-/// TODO Corresponds to `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`
+/// The execution trace type returned by geth RPC debug_trace* methods.  Corresponds to
+/// `ExecutionResult` in `go-ethereum/internal/ethapi/api.go`.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[doc(hidden)]
 pub struct GethExecTrace {
     pub gas: Gas,
     pub failed: bool,
     // return_value is a hex encoded byte array
-    // #[serde(alias = "returnValue")]
-    // pub(crate) return_value: String,
     #[serde(alias = "structLogs")]
     pub struct_logs: Vec<GethExecStep>,
 }
@@ -332,7 +322,7 @@ pub struct GethExecTrace {
 // TODO: Move this test macros to a crate, export them, and use them in all tests
 
 #[macro_export]
-/// TODO: Panics
+/// Create an [`Address`] from a hex string.  Panics on invalid input.
 macro_rules! address {
     ($addr_hex:expr) => {{
         use std::str::FromStr;
@@ -342,7 +332,7 @@ macro_rules! address {
 }
 
 #[macro_export]
-/// TODO: Panics
+/// Create a [`Word`] from a hex string.  Panics on invalid input.
 macro_rules! word {
     ($word_hex:expr) => {
         $crate::eth_types::Word::from_str_radix(&$word_hex, 16)
@@ -351,7 +341,7 @@ macro_rules! word {
 }
 
 #[macro_export]
-/// TODO: Panics
+/// Create a [`Word`] to [`Word`] HashMap from pairs of hex strings.  Panics on invalid input.
 macro_rules! word_map {
     () => {
         std::collections::HashMap::new()
@@ -456,6 +446,9 @@ mod tests {
 #[cfg(test)]
 mod eth_types_test {
     use super::*;
+    use crate::eth_types::Word;
+    use crate::Error;
+    use std::str::FromStr;
 
     #[test]
     fn address() {
@@ -500,5 +493,45 @@ mod eth_types_test {
                 .to_word(),
             Word::from(1u32),
         )
+    }
+
+    #[test]
+    fn word_bytes_serialization_trip() -> Result<(), Error> {
+        let first_usize = 64536usize;
+        // Parsing on both ways works.
+        assert_eq!(
+            Word::from_little_endian(&first_usize.to_le_bytes()),
+            Word::from_big_endian(&first_usize.to_be_bytes())
+        );
+        let addr = Word::from_little_endian(&first_usize.to_le_bytes());
+        assert_eq!(addr, Word::from(first_usize));
+
+        // Little endian export
+        let mut le_obtained_usize = [0u8; 32];
+        addr.to_little_endian(&mut le_obtained_usize);
+        let mut le_array = [0u8; 8];
+        le_array.copy_from_slice(&le_obtained_usize[0..8]);
+
+        // Big endian export
+        let mut be_array = [0u8; 8];
+        let be_obtained_usize = addr.to_be_bytes();
+        be_array.copy_from_slice(&be_obtained_usize[24..32]);
+
+        assert_eq!(first_usize, usize::from_le_bytes(le_array));
+        assert_eq!(first_usize, usize::from_be_bytes(be_array));
+
+        Ok(())
+    }
+
+    #[test]
+    fn word_from_str() -> Result<(), Error> {
+        let word_str =
+            "000000000000000000000000000000000000000000000000000c849c24f39248";
+
+        let word_from_u128 = Word::from(3523505890234952u128);
+        let word_from_str = Word::from_str(word_str)?;
+
+        assert_eq!(word_from_u128, word_from_str);
+        Ok(())
     }
 }

@@ -219,8 +219,5 @@ pub mod bytecode;
 pub mod circuit_input_builder;
 #[macro_use]
 pub mod eth_types;
-pub mod util;
 pub use error::Error;
 pub use exec_trace::BlockConstants;
-// /// Gas is exported as a type alias for u64
-// pub type Gas = u64;

@@ -18,12 +18,6 @@ impl Opcode for Push1 {
     fn gen_associated_ops(
         state: &mut CircuitInputStateRef,
         steps: &[GethExecStep],
-        // &self,
-        // ctx: &mut TraceContext,
-        // // Contains the PUSH1 instr
-        // exec_step: &mut ExecutionStep,
-        // // Contains the next step where we can find the value that was pushed.
-        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
         state.push_op(StackOp::new(
             RW::WRITE,

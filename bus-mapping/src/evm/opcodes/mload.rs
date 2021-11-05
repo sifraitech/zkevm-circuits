@@ -21,9 +21,6 @@ impl Opcode for Mload {
     fn gen_associated_ops(
         state: &mut CircuitInputStateRef,
         steps: &[GethExecStep],
-        // ctx: &mut TraceContext,
-        // exec_step: &mut ExecutionStep,
-        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
         let step = &steps[0];
         //

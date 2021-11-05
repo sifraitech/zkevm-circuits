@@ -14,26 +14,15 @@ use mload::Mload;
 use sload::Sload;
 use stop::Stop;
 
-// /// Generic opcode trait which defines the logic of the
-// /// [`Operation`](crate::operation::Operation) that should be generated for an
-// /// [`ExecutionStep`](crate::exec_trace::ExecutionStep) depending of the
-// /// [`OpcodeId`] it contains.
-// pub trait Opcode: Debug {
-//     /// Generate the associated [`MemoryOp`](crate::operation::MemoryOp)s,
-//     /// [`StackOp`](crate::operation::StackOp)s, and
-//     /// [`StorageOp`](crate::operation::StorageOp)s associated to the Opcode
-//     /// is implemented for.
-//     fn gen_associated_ops(
-//         &self,
-//         ctx: &mut TraceContext,
-//         exec_step: &mut ExecutionStep,
-//         next_steps: &[ExecutionStep],
-//     ) -> Result<(), Error>;
-// }
-
-/// TODO
+/// Generic opcode trait which defines the logic of the
+/// [`Operation`](crate::operation::Operation) that should be generated for an
+/// [`ExecStep`](crate::circuit_input_builder::ExecStep) depending of the
+/// [`OpcodeId`] it contains.
 pub trait Opcode: Debug {
-    /// TODO
+    /// Generate the associated [`MemoryOp`](crate::operation::MemoryOp)s,
+    /// [`StackOp`](crate::operation::StackOp)s, and
+    /// [`StorageOp`](crate::operation::StorageOp)s associated to the Opcode
+    /// is implemented for.
     fn gen_associated_ops(
         state: &mut CircuitInputStateRef,
         next_steps: &[GethExecStep],
@@ -56,7 +45,7 @@ impl OpcodeId {
         }
     }
 
-    /// TODO
+    /// Generate the associated operations according to the particular [`OpcodeId`].
     pub fn gen_associated_ops(
         &self,
         state: &mut CircuitInputStateRef,
@@ -66,33 +55,3 @@ impl OpcodeId {
         fn_gen_associated_ops(state, next_steps)
     }
 }
-
-// This is implemented for OpcodeId so that we can downcast the responsabilities
-// to the specific Opcode structure implementations since OpcodeId is a single
-// structure with all the OPCODES stated as associated constants.
-// Easier to solve with a macro. But leaving here for now until we refactor in a
-// future PR.
-// impl Opcode for OpcodeId {
-//     fn gen_associated_ops(
-//         &self,
-//         ctx: &mut TraceContext,
-//         exec_step: &mut ExecutionStep,
-//         next_steps: &[ExecutionStep],
-//     ) -> Result<(), Error> {
-//         match *self {
-//             OpcodeId::PUSH1 => {
-//                 Push1 {}.gen_associated_ops(ctx, exec_step, next_steps)
-//             }
-//             OpcodeId::MLOAD => {
-//                 Mload {}.gen_associated_ops(ctx, exec_step, next_steps)
-//             }
-//             OpcodeId::SLOAD => {
-//                 Sload {}.gen_associated_ops(ctx, exec_step, next_steps)
-//             }
-//             OpcodeId::STOP => {
-//                 Stop {}.gen_associated_ops(ctx, exec_step, next_steps)
-//             }
-//             _ => unimplemented!(),
-//         }
-//     }
-// }

@@ -10,7 +10,6 @@ use crate::{BlockConstants, Error};
 use core::fmt::Debug;
 // use pasta_curves::arithmetic::FieldExt;
 
-// mock
 #[derive(Debug)]
 pub struct ExecStep {
     pub op: OpcodeId,
@@ -31,6 +30,12 @@ impl ExecStep {
 #[derive(Debug)]
 pub struct BlockContext {
     pub gc: GlobalCounter,
+}
+
+impl Default for BlockContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BlockContext {
@@ -60,7 +65,7 @@ impl Block {
         }
     }
 
-    /// TODO
+    /// Return the list of transactions of this block.
     pub fn txs(&self) -> &[Transaction] {
         &self.txs
     }
@@ -72,11 +77,13 @@ impl Block {
 }
 
 #[derive(Debug)]
+/// Context of a Call during a [`Transaction`] which can mutate in an [`ExecStep`].
 pub struct CallContext {
     address: Address,
 }
 
 #[derive(Debug)]
+/// Context of a [`Transaction`] which can mutate in an [`ExecStep`].
 pub struct TransactionContext {
     call_ctxs: Vec<CallContext>,
 }
@@ -92,6 +99,7 @@ impl TransactionContext {
 }
 
 #[derive(Debug)]
+/// Result of the parsing of an Ethereum Transaction.
 pub struct Transaction {
     steps: Vec<ExecStep>,
 }
@@ -101,7 +109,7 @@ impl Transaction {
         Self { steps: Vec::new() }
     }
 
-    /// TODO
+    /// Return the list of execution steps of this transaction.
     pub fn steps(&self) -> &[ExecStep] {
         &self.steps
     }
@@ -135,12 +143,29 @@ impl<'a> CircuitInputStateRef<'a> {
 }
 
 #[derive(Debug)]
+/// Builder to generate a complete circuit input from data gathered from a geth instance.
+/// This structure is the centre of the crate and is intended to be the only
+/// entry point to it. The `CircuitInputBuilder` works in several steps:
+///
+/// 1. Take a [`eth_types::Block`] to build the circuit input associated with the block.
+/// 2. For each [`eth_types::Transaction`] in the block, take the [`eth_types::GethExecTrace`] to
+///    build the circuit input associated with each transaction, and the bus-mapping operations
+///    associated with each `eth_types::GethExecStep`] in the [`eth_types::GethExecTrace`].
+///
+/// The generated bus-mapping operations are:
+/// [`StackOp`]s,
+/// [`MemoryOp`]s and
+/// [`StorageOp`](crate::operation::StorageOp), which correspond to each
+/// [`OpcodeId`](crate::evm::OpcodeId)s used in each `ExecTrace` step so that the State Proof
+/// witnesses are already generated on a structured manner and ready to be added into the State
+/// circuit.
 pub struct CircuitInputBuilder {
     pub block: Block,
     pub block_ctx: BlockContext,
 }
 
 impl<'a> CircuitInputBuilder {
+    /// Create a new CircuitInputBuilder from the given `eth_block` and `constants`.
     pub fn new<TX>(
         eth_block: eth_types::Block<TX>,
         constants: BlockConstants,
@@ -151,6 +176,9 @@ impl<'a> CircuitInputBuilder {
         }
     }
 
+    /// Obtain a mutable reference to the state that the `CircuitInputBuilder` maintains,
+    /// contextualized to a particular transaction and a particular execution step in that
+    /// transaction.
     pub fn state_ref(
         &'a mut self,
         tx: &'a mut Transaction,
@@ -166,15 +194,18 @@ impl<'a> CircuitInputBuilder {
         }
     }
 
+    /// Handle a transaction with its corresponding execution trace to generate all the associated
+    /// operations.  Each operation is registered in `self.block.container`, and each step stores
+    /// the [`OperationRef`] to each of the generated operations.
     pub fn handle_tx(
         &mut self,
         eth_tx: &eth_types::Transaction,
         geth_trace: &GethExecTrace,
     ) -> Result<(), Error> {
-        let mut tx = Transaction::new(&eth_tx);
-        let mut tx_ctx = TransactionContext::new(&eth_tx);
+        let mut tx = Transaction::new(eth_tx);
+        let mut tx_ctx = TransactionContext::new(eth_tx);
         for (index, geth_step) in geth_trace.struct_logs.iter().enumerate() {
-            let mut step = ExecStep::new(&geth_step, self.block_ctx.gc);
+            let mut step = ExecStep::new(geth_step, self.block_ctx.gc);
             let mut state_ref = self.state_ref(&mut tx, &mut tx_ctx, &mut step);
             geth_step.op.gen_associated_ops(
                 &mut state_ref,
@@ -212,7 +243,7 @@ impl MockBlock {
             &crate::address!("0x00000000000000000000000000000000c014ba5e"),
         );
         let tracer_tx = external_tracer::Transaction::from_eth_tx(&eth_tx);
-        let tracer_account = external_tracer::Account::mock(&code);
+        let tracer_account = external_tracer::Account::mock(code);
         let geth_trace = eth_types::GethExecTrace {
             gas: Gas(eth_tx.gas.as_u64()),
             failed: false,

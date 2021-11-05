@@ -3,7 +3,6 @@ use crate::circuit_input_builder::CircuitInputStateRef;
 use crate::eth_types::GethExecStep;
 use crate::{
     eth_types::Address,
-    // exec_trace::{ExecutionStep, TraceContext},
     operation::{StackOp, StorageOp, RW},
     Error,
 };
@@ -18,10 +17,6 @@ impl Opcode for Sload {
     fn gen_associated_ops(
         state: &mut CircuitInputStateRef,
         steps: &[GethExecStep],
-        // &self,
-        // ctx: &mut TraceContext,
-        // exec_step: &mut ExecutionStep,
-        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
         let step = &steps[0];
         let gc_start = state.block_ctx.gc;
@@ -66,9 +61,6 @@ mod sload_tests {
         eth_types::Word,
         evm::StackAddress,
     };
-    // use pasta_curves::pallas::Scalar;
-    // use std::collections::HashMap;
-    // use std::iter::FromIterator;
 
     #[test]
     fn sload_opcode_impl() -> Result<(), Error> {

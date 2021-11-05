@@ -16,10 +16,6 @@ impl Opcode for Stop {
     fn gen_associated_ops(
         state: &mut CircuitInputStateRef,
         steps: &[GethExecStep],
-        // &self,
-        // ctx: &mut TraceContext,
-        // exec_step: &mut ExecutionStep,
-        // next_steps: &[ExecutionStep],
     ) -> Result<(), Error> {
         // Stop does not generate any operations
         Ok(())
