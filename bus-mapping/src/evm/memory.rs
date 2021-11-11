@@ -1,12 +1,11 @@
 //! Doc this
-use crate::eth_types::Word;
+use crate::eth_types::{ToBigEndian, Word};
 use crate::Error;
 use core::convert::TryFrom;
 use core::ops::{
     Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign,
 };
 use core::str::FromStr;
-use serde::Deserialize;
 
 /// Represents a `MemoryAddress` of the EVM.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -165,14 +164,14 @@ impl Default for Memory {
     }
 }
 
-impl<'de> Deserialize<'de> for Memory {
-    fn deserialize<D>(deserializer: D) -> Result<Memory, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Ok(Memory::from(Vec::<Word>::deserialize(deserializer)?))
-    }
-}
+// impl<'de> Deserialize<'de> for Memory {
+//     fn deserialize<D>(deserializer: D) -> Result<Memory, D::Error>
+//     where
+//         D: serde::Deserializer<'de>,
+//     {
+//         Ok(Memory::from(Vec::<Word>::deserialize(deserializer)?))
+//     }
+// }
 
 impl From<Vec<u8>> for Memory {
     fn from(vec: Vec<u8>) -> Self {

@@ -28,6 +28,7 @@ impl ExecStep {
 }
 
 #[derive(Debug)]
+/// Context of a Block which can mutate in a [`Transaction`].
 pub struct BlockContext {
     pub gc: GlobalCounter,
 }
@@ -235,8 +236,8 @@ impl MockBlock {
     /// Create a new block with a single tx that executes the code passed by argument.  The trace
     /// will be generated automatically with the external_tracer from the code.
     pub fn new_single_tx_trace_code(code: &Bytecode) -> Result<Self, Error> {
-        let eth_block = eth_types::Block::mock();
-        let eth_tx = eth_types::Transaction::mock(&eth_block);
+        let eth_block = eth_types::new_block_mock();
+        let eth_tx = eth_types::new_tx_mock(&eth_block);
         let block_ctants = BlockConstants::from_eth_block(
             &eth_block,
             &eth_types::Word::one(),
@@ -266,8 +267,8 @@ impl MockBlock {
     pub fn new_single_tx_geth_steps(
         geth_steps: Vec<eth_types::GethExecStep>,
     ) -> Self {
-        let eth_block = eth_types::Block::mock();
-        let eth_tx = eth_types::Transaction::mock(&eth_block);
+        let eth_block = eth_types::new_block_mock();
+        let eth_tx = eth_types::new_tx_mock(&eth_block);
         let block_ctants = BlockConstants::from_eth_block(
             &eth_block,
             &eth_types::Word::one(),

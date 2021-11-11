@@ -1,6 +1,6 @@
 use super::Opcode;
 use crate::circuit_input_builder::CircuitInputStateRef;
-use crate::eth_types::GethExecStep;
+use crate::eth_types::{GethExecStep, ToBigEndian};
 use crate::{
     evm::MemoryAddress,
     // exec_trace::{ExecutionStep, TraceContext},
@@ -38,8 +38,7 @@ impl Opcode for Mload {
         let mut mem_read_addr: MemoryAddress = stack_value_read.try_into()?;
         let mem_read_value = steps[1].memory.read_word(mem_read_addr)?;
 
-        let mut bytes = [0u8; 32];
-        mem_read_value.to_big_endian(&mut bytes);
+        let bytes = mem_read_value.to_be_bytes();
         bytes.iter().for_each(|value_byte| {
             state.push_op(MemoryOp::new(RW::READ, mem_read_addr, *value_byte));
 

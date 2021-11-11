@@ -111,8 +111,8 @@
 //! );
 //!
 //! // We use some mock data as context for the trace
-//! let eth_block = eth_types::Block::mock();
-//! let eth_tx = eth_types::Transaction::mock(&eth_block);
+//! let eth_block = eth_types::new_block_mock();
+//! let eth_tx = eth_types::new_tx_mock(&eth_block);
 //!
 //! let mut builder =
 //!     CircuitInputBuilder::new(eth_block, block_ctants);

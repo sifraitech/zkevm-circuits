@@ -1,11 +1,12 @@
-//! TODO
+//! Ethereum types used to deserialize responses from web3 / geth.
 
 use crate::evm::{memory::Memory, stack::Stack, storage::Storage};
 use crate::evm::{Gas, GasCost, OpcodeId, ProgramCounter};
 use pasta_curves::arithmetic::FieldExt;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Serialize};
+use std::collections::HashMap;
 use std::str::FromStr;
-pub use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U64};
+pub use web3::types::{self, AccessList, Bytes, Index, H2048, H64, U256, U64};
 
 use subtle::CtOption;
 
@@ -15,29 +16,41 @@ pub trait ToScalar<F: FieldExt> {
     fn to_scalar(&self) -> CtOption<F>;
 }
 
-// We use our own declaration of U256 in order to implement a custom deserializer that can parse
-// U256 when returned by structLogs fields in geth debug_trace* methods, which don't contain the
-// `0x` prefix.
+/// Trait used to convert a type to a [`Word`].
+pub trait ToWord {
+    /// Convert the type to a [`Word`].
+    fn to_word(&self) -> Word;
+}
+
+/// Trait uset do convert a scalar value to a 32 byte array in big endian.
+pub trait ToBigEndian {
+    /// Convert the value to a 32 byte array in big endian.
+    fn to_be_bytes(&self) -> [u8; 32];
+}
+
+// We use our own declaration of another U256 in order to implement a custom deserializer that can
+// parse U256 when returned by structLogs fields in geth debug_trace* methods, which don't contain
+// the `0x` prefix.
 #[allow(clippy::all)]
 mod uint_types {
     uint::construct_uint! {
         /// 256-bit unsigned integer.
-        pub struct U256(4);
+        pub struct DebugU256(4);
     }
 }
-pub use uint_types::U256;
+pub use uint_types::DebugU256;
 
-impl<'de> Deserialize<'de> for U256 {
-    fn deserialize<D>(deserializer: D) -> Result<U256, D::Error>
+impl<'de> Deserialize<'de> for DebugU256 {
+    fn deserialize<D>(deserializer: D) -> Result<DebugU256, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        U256::from_str(&s).map_err(de::Error::custom)
+        DebugU256::from_str(&s).map_err(de::Error::custom)
     }
 }
 
-impl Serialize for U256 {
+impl Serialize for DebugU256 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -51,6 +64,41 @@ impl Serialize for U256 {
     }
 }
 
+impl<F: FieldExt> ToScalar<F> for DebugU256 {
+    fn to_scalar(&self) -> CtOption<F> {
+        let mut bytes = [0u8; 32];
+        self.to_little_endian(&mut bytes);
+        F::from_bytes(&bytes)
+    }
+}
+
+impl ToBigEndian for DebugU256 {
+    /// Encode the value as byte array in big endian.
+    fn to_be_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        self.to_big_endian(&mut bytes);
+        bytes
+    }
+}
+
+impl ToWord for DebugU256 {
+    fn to_word(&self) -> Word {
+        U256(self.0)
+    }
+}
+
+/// Ethereum Word (256 bits).
+pub type Word = U256;
+
+impl ToBigEndian for U256 {
+    /// Encode the value as byte array in big endian.
+    fn to_be_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        self.to_big_endian(&mut bytes);
+        bytes
+    }
+}
+
 impl<F: FieldExt> ToScalar<F> for U256 {
     fn to_scalar(&self) -> CtOption<F> {
         let mut bytes = [0u8; 32];
@@ -59,26 +107,8 @@ impl<F: FieldExt> ToScalar<F> for U256 {
     }
 }
 
-impl U256 {
-    /// Encode the value as byte array in big endian.
-    pub fn to_be_bytes(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        self.to_big_endian(&mut bytes);
-        bytes
-    }
-}
-
-/// Ethereum Word (256 bits).
-pub type Word = U256;
-
 /// Ethereum Hash (160 bits).
 pub type Hash = types::H256;
-
-/// Trait used to convert a type to a [`Word`].
-pub trait ToWord {
-    /// Convert the type to a [`Word`].
-    fn to_word(&self) -> Word;
-}
 
 /// Ethereum Address (160 bits).
 pub use types::Address;
@@ -99,212 +129,130 @@ impl<F: FieldExt> ToScalar<F> for Address {
     }
 }
 
-fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    T: Default + Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    let option = Option::deserialize(deserializer)?;
-    Ok(option.unwrap_or_default())
-}
+pub use types::Block;
 
-/// The block type returned from geth RPC calls.
-/// This is generic over a `TX` type.
-/// Imported from `web3/types/block.rs`
-#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
-pub struct Block<TX> {
-    /// Hash of the block
-    pub hash: Option<Hash>,
-    /// Hash of the parent
-    #[serde(rename = "parentHash")]
-    pub parent_hash: Hash,
-    /// Hash of the uncles
-    #[serde(rename = "sha3Uncles")]
-    pub uncles_hash: Hash,
-    /// Miner/author's address.
-    #[serde(rename = "miner", default, deserialize_with = "null_to_default")]
-    pub author: Address,
-    /// State root hash
-    #[serde(rename = "stateRoot")]
-    pub state_root: Hash,
-    /// Transactions root hash
-    #[serde(rename = "transactionsRoot")]
-    pub transactions_root: Hash,
-    /// Transactions receipts root hash
-    #[serde(rename = "receiptsRoot")]
-    pub receipts_root: Hash,
-    /// Block number. None if pending.
-    pub number: Option<U64>,
-    /// Gas Used
-    #[serde(rename = "gasUsed")]
-    pub gas_used: Word,
-    /// Gas Limit
-    #[serde(rename = "gasLimit")]
-    pub gas_limit: Word,
-    /// Base fee per unit of gas (if past London)
-    #[serde(rename = "baseFeePerGas")]
-    pub base_fee_per_gas: Option<Word>,
-    /// Extra data
-    #[serde(rename = "extraData")]
-    pub extra_data: Bytes,
-    /// Logs bloom
-    #[serde(rename = "logsBloom")]
-    pub logs_bloom: Option<H2048>,
-    /// Timestamp
-    pub timestamp: Word,
-    /// Difficulty
-    pub difficulty: Word,
-    /// Total difficulty
-    #[serde(rename = "totalDifficulty")]
-    pub total_difficulty: Option<Word>,
-    /// Seal fields
-    #[serde(default, rename = "sealFields")]
-    pub seal_fields: Vec<Bytes>,
-    /// Uncles' hashes
-    pub uncles: Vec<Hash>,
-    /// Transactions
-    pub transactions: Vec<TX>,
-    /// Size in bytes
-    pub size: Option<Word>,
-    /// Mix Hash
-    #[serde(rename = "mixHash")]
-    pub mix_hash: Option<Hash>,
-    /// Nonce
-    pub nonce: Option<H64>,
-}
-
-impl Block<()> {
-    /// TODO
-    pub fn mock() -> Self {
-        Self {
-            hash: Some(Hash::from([0u8; 32])),
-            parent_hash: Hash::from([0u8; 32]),
-            uncles_hash: Hash::from([0u8; 32]),
-            author: Address::from([0u8; 20]),
-            state_root: Hash::from([0u8; 32]),
-            transactions_root: Hash::from([0u8; 32]),
-            receipts_root: Hash::from([0u8; 32]),
-            number: Some(U64([123456u64])),
-            gas_used: Word::from(15_000_000u64),
-            gas_limit: Word::from(15_000_000u64),
-            base_fee_per_gas: Some(Word::from(97u64)),
-            extra_data: Bytes(Vec::new()),
-            logs_bloom: None,
-            timestamp: Word::from(1633398551u64),
-            difficulty: Word::from(0x200000u64),
-            total_difficulty: None,
-            seal_fields: Vec::new(),
-            uncles: Vec::new(),
-            transactions: Vec::new(),
-            size: None,
-            mix_hash: None,
-            nonce: Some(H64([0u8; 8])),
-        }
+/// Generate a new mock block with preloaded data, useful for tests.
+pub fn new_block_mock() -> Block<()> {
+    Block {
+        hash: Some(Hash::from([0u8; 32])),
+        parent_hash: Hash::from([0u8; 32]),
+        uncles_hash: Hash::from([0u8; 32]),
+        author: Address::from([0u8; 20]),
+        state_root: Hash::from([0u8; 32]),
+        transactions_root: Hash::from([0u8; 32]),
+        receipts_root: Hash::from([0u8; 32]),
+        number: Some(U64([123456u64])),
+        gas_used: Word::from(15_000_000u64),
+        gas_limit: Word::from(15_000_000u64),
+        base_fee_per_gas: Some(Word::from(97u64)),
+        extra_data: Bytes(Vec::new()),
+        logs_bloom: None,
+        timestamp: Word::from(1633398551u64),
+        difficulty: Word::from(0x200000u64),
+        total_difficulty: None,
+        seal_fields: Vec::new(),
+        uncles: Vec::new(),
+        transactions: Vec::new(),
+        size: None,
+        mix_hash: None,
+        nonce: Some(H64([0u8; 8])),
     }
 }
 
-/// The Transaction type returned from geth RPC calls.
-/// Imported from `web3/types/transaction.rs`
-#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
-pub struct Transaction {
-    /// Hash
-    pub hash: Hash,
-    /// Nonce
-    pub nonce: Word,
-    /// Block hash. None when pending.
-    #[serde(rename = "blockHash")]
-    pub block_hash: Option<Hash>,
-    /// Block number. None when pending.
-    #[serde(rename = "blockNumber")]
-    pub block_number: Option<U64>,
-    /// Transaction Index. None when pending.
-    #[serde(rename = "transactionIndex")]
-    pub transaction_index: Option<Index>,
-    /// Sender
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from: Option<Address>,
-    /// Recipient (None when contract creation)
-    pub to: Option<Address>,
-    /// Transfered value
-    pub value: Word,
-    /// Gas Price
-    #[serde(rename = "gasPrice")]
-    pub gas_price: Word,
-    /// Gas amount
-    pub gas: Word,
-    /// Input data
-    pub input: Bytes,
-    /// ECDSA recovery id
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub v: Option<U64>,
-    /// ECDSA signature r, 32 bytes
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r: Option<Word>,
-    /// ECDSA signature s, 32 bytes
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s: Option<Word>,
-    /// Raw transaction data
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw: Option<Bytes>,
-    /// Transaction type, Some(1) for AccessList transaction, None for Legacy
-    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
-    pub transaction_type: Option<U64>,
-    /// Access list
-    #[serde(
-        rename = "accessList",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub access_list: Option<AccessList>,
+pub use types::Transaction;
+
+/// Generate a new mock transaction with preloaded data, useful for tests.
+pub fn new_tx_mock<TX>(block: &Block<TX>) -> Transaction {
+    Transaction {
+        hash: Hash::from([0u8; 32]),
+        nonce: Word::from([0u8; 32]),
+        block_hash: block.hash,
+        block_number: block.number,
+        transaction_index: Some(Index::from(0u64)),
+        from: Some(
+            Address::from_str("0x00000000000000000000000000000000c014ba5e")
+                .unwrap(),
+        ),
+        to: Some(Address::zero()),
+        value: Word::from([0u8; 32]),
+        gas_price: Word::from([0u8; 32]),
+        gas: Word::from(1_000_000u64),
+        input: Bytes(Vec::new()),
+        v: Some(U64([0u64])),
+        r: Some(Word::from([0u8; 32])),
+        s: Some(Word::from([0u8; 32])),
+        raw: Some(Bytes(Vec::new())),
+        transaction_type: Some(U64([0u64])),
+        access_list: None,
+    }
 }
 
-impl Transaction {
-    /// Generate a new mock transaction with preloaded data, useful for tests.
-    pub fn mock<TX>(block: &Block<TX>) -> Self {
-        Self {
-            hash: Hash::from([0u8; 32]),
-            nonce: Word::from([0u8; 32]),
-            block_hash: block.hash,
-            block_number: block.number,
-            transaction_index: Some(Index::from(0u64)),
-            from: Some(
-                Address::from_str("0x00000000000000000000000000000000c014ba5e")
-                    .unwrap(),
-            ),
-            to: Some(Address::zero()),
-            value: Word::from([0u8; 32]),
-            gas_price: Word::from([0u8; 32]),
-            gas: Word::from(1_000_000u64),
-            input: Bytes(Vec::new()),
-            v: Some(U64([0u64])),
-            r: Some(Word::from([0u8; 32])),
-            s: Some(Word::from([0u8; 32])),
-            raw: Some(Bytes(Vec::new())),
-            transaction_type: Some(U64([0u64])),
-            access_list: None,
-        }
-    }
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[doc(hidden)]
+struct GethExecStepInternal {
+    pc: ProgramCounter,
+    op: OpcodeId,
+    gas: Gas,
+    #[serde(alias = "gasCost")]
+    gas_cost: GasCost,
+    depth: u8,
+    // stack is in hex 0x prefixed
+    stack: Vec<DebugU256>,
+    // memory is in chunks of 32 bytes, in hex
+    #[serde(default)]
+    memory: Vec<DebugU256>,
+    // storage is hex -> hex
+    #[serde(default)]
+    storage: HashMap<DebugU256, DebugU256>,
 }
 
 /// The execution step type returned by geth RPC debug_trace* methods.   Corresponds to
 /// `StructLogRes` in `go-ethereum/internal/ethapi/api.go`.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[doc(hidden)]
 pub struct GethExecStep {
     pub pc: ProgramCounter,
     pub op: OpcodeId,
     pub gas: Gas,
-    #[serde(alias = "gasCost")]
     pub gas_cost: GasCost,
     pub depth: u8,
     // stack is in hex 0x prefixed
     pub stack: Stack,
     // memory is in chunks of 32 bytes, in hex
-    #[serde(default)]
     pub memory: Memory,
     // storage is hex -> hex
-    #[serde(default)]
     pub storage: Storage,
+}
+
+impl<'de> Deserialize<'de> for GethExecStep {
+    fn deserialize<D>(deserializer: D) -> Result<GethExecStep, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = GethExecStepInternal::deserialize(deserializer)?;
+        Ok(GethExecStep {
+            pc: s.pc,
+            op: s.op,
+            gas: s.gas,
+            gas_cost: s.gas_cost,
+            depth: s.depth,
+            stack: Stack(
+                s.stack.iter().map(|dw| dw.to_word()).collect::<Vec<Word>>(),
+            ),
+            memory: Memory::from(
+                s.memory
+                    .iter()
+                    .map(|dw| dw.to_word())
+                    .collect::<Vec<Word>>(),
+            ),
+            storage: Storage(
+                s.storage
+                    .iter()
+                    .map(|(k, v)| (k.to_word(), v.to_word()))
+                    .collect(),
+            ),
+        })
+    }
 }
 
 /// The execution trace type returned by geth RPC debug_trace* methods.  Corresponds to
@@ -529,7 +477,7 @@ mod eth_types_test {
             "000000000000000000000000000000000000000000000000000c849c24f39248";
 
         let word_from_u128 = Word::from(3523505890234952u128);
-        let word_from_str = Word::from_str(word_str)?;
+        let word_from_str = Word::from_str(word_str).unwrap();
 
         assert_eq!(word_from_u128, word_from_str);
         Ok(())
