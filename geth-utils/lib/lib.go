@@ -29,6 +29,7 @@ func CreateTrace(config *C.char) *C.char {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load trace config, err: %v\n", err)
 	}
+	fmt.Printf("DBG %#v\n", gethConfig)
 
 	logs, err := gethutil.TraceTx(&gethConfig.target, nil, &gethConfig.config, gethConfig.contracts)
 	if err != nil {
