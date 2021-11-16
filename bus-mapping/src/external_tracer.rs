@@ -69,7 +69,8 @@ pub fn trace(
 
 /// TODO
 pub const ERR_STACK_OVERFLOW: &str = "stack limit reached";
-
+/// TODO
+pub const ERR_INVALID_OPCODE: &str = "invalid opcode";
 /// TODO
 pub const ERR_STACK_UNDERFLOW: &str = "stack underflow";
 /// TODO
@@ -179,7 +180,6 @@ mod tracer_tests {
         )
         .unwrap()
         .to_vec();
-        // println!("{:#?}", struct_logs);
         assert_eq!(
             struct_logs[9].error,
             Some(ERR_WRITE_PROTECTION.to_string())
@@ -252,14 +252,42 @@ mod tracer_tests {
             STOP
         };
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
-        println!("{:#?}", block.geth_trace.struct_logs);
-        // FIXME: The error is not found in the GethExecStep.  Where is it?
-        // assert_eq!(
-        //     block.geth_trace.struct_logs[0].error,
-        //     Some(format!("{} (0 <=> 6)", ERR_STACK_UNDERFLOW))
-        // );
+        assert_eq!(block.geth_trace.struct_logs.len(), 2);
+        assert_eq!(block.geth_trace.struct_logs[1].op, OpcodeId::JUMP);
+        // println!("{:#?}", block.geth_trace.struct_logs);
+        // The error is not found in the GethExecStep. :(
+    }
+
+    #[test]
+    fn tracer_err_execution_reverted() {
+        let code = bytecode! {
+            PUSH1(0x0)
+            PUSH2(0x0)
+            REVERT
+            PUSH3(0x12)
+            STOP
+        };
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        assert_eq!(block.geth_trace.struct_logs.len(), 3);
+        assert_eq!(block.geth_trace.struct_logs[2].op, OpcodeId::REVERT);
     }
 
     // return data out of bounds
     // TODO
+
+    #[test]
+    fn tracer_err_invalid_opcode() {
+        let mut code = bytecode::Bytecode::default();
+        code.write_op(OpcodeId::PC);
+        code.write(0x0f);
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        let last_step = &block.geth_trace.struct_logs
+            [block.geth_trace.struct_logs.len() - 1];
+        // println!("{:#?}", last_step);
+        assert_eq!(last_step.op, OpcodeId::INVALID(0x0f));
+        assert_eq!(
+            last_step.error,
+            Some(format!("{}: opcode 0xf not defined", ERR_INVALID_OPCODE))
+        );
+    }
 }
