@@ -94,7 +94,23 @@ func TraceTx(toAddress *common.Address, calldata []byte, config *runtime.Config,
 		_, _, err = runtime.Call(*toAddress, nil, config)
 	}
 
+	fmt.Printf("DBG Err %+v\n", tracer.Error())
+	// result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("tracing failed: %w", err)
+	// }
 	return FormatLogs(tracer.StructLogs()), err
+	// 	// If the result contains a revert reason, return it.
+	// 	returnVal := fmt.Sprintf("%x", result.Return())
+	// 	if len(result.Revert()) > 0 {
+	// 		returnVal = fmt.Sprintf("%x", result.Revert())
+	// 	}
+	// return &ExecutionResult{
+	// 		Gas:         result.UsedGas,
+	// 		Failed:      result.Failed(),
+	// 		ReturnValue: returnVal,
+	// 		StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+	// 	}
 }
 
 // TODO: TraceBlock

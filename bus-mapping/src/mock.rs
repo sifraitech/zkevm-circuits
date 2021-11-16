@@ -60,6 +60,7 @@ pub fn new_tx<TX>(block: &eth_types::Block<TX>) -> eth_types::Transaction {
 
 /// BlockData is a type that contains all the information from a block required to build the
 /// circuit inputs.
+#[derive(Debug)]
 pub struct BlockData {
     /// Block from geth
     pub eth_block: eth_types::Block<()>,
