@@ -13,14 +13,19 @@ pub struct Bytecode {
 }
 
 impl Bytecode {
+    /// Get a reference to the generated code
+    pub fn code(&self) -> &[u8] {
+        &self.code
+    }
+
     /// Get the generated code
     pub fn to_bytes(&self) -> Vec<u8> {
         self.code.clone()
     }
 
     /// Append
-    pub fn append(&mut self, other: &mut Bytecode) {
-        self.code.append(&mut other.code);
+    pub fn append(&mut self, other: &Bytecode) {
+        self.code.extend_from_slice(&other.code);
         for (key, val) in other.markers.iter() {
             self.insert_marker(key, self.num_opcodes + val);
         }

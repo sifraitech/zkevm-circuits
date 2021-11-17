@@ -25,11 +25,12 @@ import (
 //export CreateTrace
 func CreateTrace(config *C.char) *C.char {
 	var gethConfig GethConfig
+	// fmt.Printf("DBG3 %#v\n", string(C.GoString(config)))
 	err := json.Unmarshal([]byte(C.GoString(config)), &gethConfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load trace config, err: %v\n", err)
 	}
-	fmt.Printf("DBG %#v\n", gethConfig)
+	// fmt.Printf("DBG %#v\n", gethConfig)
 
 	logs, err := gethutil.TraceTx(&gethConfig.target, nil, &gethConfig.config, gethConfig.contracts)
 	if err != nil {
@@ -49,6 +50,7 @@ func FreeString(str *C.char) {
 	C.free(unsafe.Pointer(str))
 }
 
+// FIXME: GethConfig unmarshals from JsonConfig, which is extremely confusing.
 type GethConfig struct {
 	config    runtime.Config
 	contracts []gethutil.Account

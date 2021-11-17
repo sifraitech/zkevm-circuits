@@ -94,7 +94,7 @@ func TraceTx(toAddress *common.Address, calldata []byte, config *runtime.Config,
 		_, _, err = runtime.Call(*toAddress, nil, config)
 	}
 
-	fmt.Printf("DBG Err %+v\n", tracer.Error())
+	// fmt.Printf("DBG Err %+v\n", tracer.Error())
 	// result, err := core.ApplyMessage(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
 	// if err != nil {
 	// 	return nil, fmt.Errorf("tracing failed: %w", err)
