@@ -73,11 +73,13 @@ pub struct BlockData {
 }
 
 impl BlockData {
-    fn new_single_tx_trace_accounts(
+    fn new_single_tx_trace_accounts_gas(
         accounts: &[external_tracer::Account],
+        gas: Gas,
     ) -> Result<Self, Error> {
         let eth_block = new_block();
-        let eth_tx = new_tx(&eth_block);
+        let mut eth_tx = new_tx(&eth_block);
+        eth_tx.gas = Word::from(gas.0);
         let block_ctants = BlockConstants::from_eth_block(
             &eth_block,
             &eth_types::Word::one(),
@@ -101,11 +103,29 @@ impl BlockData {
             geth_trace,
         })
     }
+
+    fn new_single_tx_trace_accounts(
+        accounts: &[external_tracer::Account],
+    ) -> Result<Self, Error> {
+        Self::new_single_tx_trace_accounts_gas(accounts, Gas(1_000_000u64))
+    }
+
     /// Create a new block with a single tx that executes the code passed by argument.  The trace
     /// will be generated automatically with the external_tracer from the code.
     pub fn new_single_tx_trace_code(code: &Bytecode) -> Result<Self, Error> {
         let tracer_account = new_tracer_account(code);
         Self::new_single_tx_trace_accounts(&[tracer_account])
+    }
+
+    /// Create a new block with a single tx with the given gas limit that executes the code passed
+    /// by argument.  The trace will be generated automatically with the external_tracer from the
+    /// code.
+    pub fn new_single_tx_trace_code_gas(
+        code: &Bytecode,
+        gas: Gas,
+    ) -> Result<Self, Error> {
+        let tracer_account = new_tracer_account(code);
+        Self::new_single_tx_trace_accounts_gas(&[tracer_account], gas)
     }
 
     /// Create a new block with a single tx that executes the code_a passed by argument, with

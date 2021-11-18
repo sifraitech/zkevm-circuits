@@ -1,6 +1,6 @@
 //! This module contains the CircuitInputBuilder, which is an object that takes types from geth /
 //! web3 and outputs the circuit inputs.
-use crate::eth_types::{self, Address, GethExecStep, GethExecTrace};
+use crate::eth_types::{self, Address, GethExecStep, GethExecTrace, Word};
 use crate::evm::GlobalCounter;
 use crate::evm::OpcodeId;
 use crate::exec_trace::OperationRef;
@@ -11,7 +11,7 @@ use crate::{BlockConstants, Error};
 use core::fmt::Debug;
 
 /// Out of Gas errors by opcode
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OogError {
     /// Out of Gas for opcodes which have non-zero constant gas cost
     Constant,
@@ -43,8 +43,10 @@ pub enum OogError {
 }
 
 /// EVM Execution Error
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ExecError {
+    /// Always returned for REVERT
+    ExecutionReverted,
     /// Invalid Opcode
     InvalidOpcode,
     /// For opcodes who push more than pop
@@ -69,6 +71,10 @@ pub enum ExecError {
     ReturnDataOutOfBounds,
     /// Internal calculation of gas overflow
     GasUintOverflow,
+    /// For RETURN in a CREATE, CREATE2
+    CodeStoreOutOfGas,
+    /// For RETURN in a CREATE, CREATE2
+    MaxCodeSizeExceeded,
 }
 
 /// An execution step of the EVM.
@@ -304,51 +310,158 @@ impl<'a> CircuitInputBuilder {
     }
 }
 
+fn get_step_reported_error(step: &GethExecStep) -> Option<ExecError> {
+    return if let Some(error) = &step.error {
+        Some(if error == GETH_ERR_GAS_UINT_OVERFLOW {
+            ExecError::GasUintOverflow
+        } else if error == GETH_ERR_WRITE_PROTECTION {
+            ExecError::WriteProtection
+        } else if error == GETH_ERR_OUT_OF_GAS {
+            let oog_err = match step.op {
+                OpcodeId::SHA3 => OogError::Sha3,
+                OpcodeId::CALLDATACOPY => OogError::CallDataCopy,
+                OpcodeId::CODECOPY => OogError::CodeCopy,
+                OpcodeId::EXTCODECOPY => OogError::ExtCodeCopy,
+                OpcodeId::RETURNDATACOPY => OogError::ReturnDataCopy,
+                OpcodeId::LOG0
+                | OpcodeId::LOG2
+                | OpcodeId::LOG3
+                | OpcodeId::LOG4 => OogError::ReturnDataCopy,
+                OpcodeId::CALL => OogError::Call,
+                OpcodeId::CALLCODE => OogError::CallCode,
+                OpcodeId::DELEGATECALL => OogError::DelegateCall,
+                OpcodeId::CREATE2 => OogError::Create2,
+                OpcodeId::STATICCALL => OogError::StaticCall,
+                OpcodeId::MLOAD
+                | OpcodeId::MSTORE
+                | OpcodeId::MSTORE8
+                | OpcodeId::CREATE
+                | OpcodeId::RETURN
+                | OpcodeId::REVERT => OogError::PureMemory,
+                _ => OogError::Constant,
+            };
+            ExecError::Oog(oog_err)
+        } else if error.starts_with(GETH_ERR_STACK_OVERFLOW) {
+            ExecError::StackOverflow
+        } else if error.starts_with(GETH_ERR_STACK_UNDERFLOW) {
+            ExecError::StackUnderflow
+        } else if error.starts_with(GETH_ERR_INVALID_OPCODE) {
+            ExecError::InvalidOpcode
+        } else {
+            panic!("Unknown GethExecStep.error: {}", error);
+        })
+    } else {
+        None
+    };
+}
+
 impl<'a> CircuitInputStateRef<'a> {
     fn get_step_err(
         &self,
         step: &GethExecStep,
         next_step: Option<&GethExecStep>,
     ) -> Option<ExecError> {
-        if let Some(error) = &step.error {
-            if error == GETH_ERR_GAS_UINT_OVERFLOW {
-                return Some(ExecError::GasUintOverflow);
-            } else if error == GETH_ERR_WRITE_PROTECTION {
-                return Some(ExecError::WriteProtection);
-            } else if error == GETH_ERR_OUT_OF_GAS {
-                let oog_err = match step.op {
-                    OpcodeId::SHA3 => OogError::Sha3,
-                    OpcodeId::CALLDATACOPY => OogError::CallDataCopy,
-                    OpcodeId::CODECOPY => OogError::CodeCopy,
-                    OpcodeId::EXTCODECOPY => OogError::ExtCodeCopy,
-                    OpcodeId::RETURNDATACOPY => OogError::ReturnDataCopy,
-                    OpcodeId::LOG0
-                    | OpcodeId::LOG2
-                    | OpcodeId::LOG3
-                    | OpcodeId::LOG4 => OogError::ReturnDataCopy,
-                    OpcodeId::CALL => OogError::Call,
-                    OpcodeId::CALLCODE => OogError::CallCode,
-                    OpcodeId::DELEGATECALL => OogError::DelegateCall,
-                    OpcodeId::CREATE2 => OogError::Create2,
-                    OpcodeId::STATICCALL => OogError::StaticCall,
-                    OpcodeId::MLOAD
-                    | OpcodeId::MSTORE
-                    | OpcodeId::MSTORE8
-                    | OpcodeId::CREATE
-                    | OpcodeId::RETURN
-                    | OpcodeId::REVERT => OogError::PureMemory,
-                    _ => OogError::Constant,
-                };
-                return Some(ExecError::Oog(oog_err));
-            } else if error.starts_with(GETH_ERR_STACK_OVERFLOW) {
-                return Some(ExecError::StackOverflow);
-            } else if error.starts_with(GETH_ERR_STACK_UNDERFLOW) {
-                return Some(ExecError::StackUnderflow);
-            } else if error.starts_with(GETH_ERR_INVALID_OPCODE) {
-                return Some(ExecError::InvalidOpcode);
+        if let Some(error) = get_step_reported_error(step) {
+            return Some(error);
+        }
+        assert!(step.error.is_none());
+
+        let next_depth = next_step.map(|s| s.depth).unwrap_or(0);
+        let next_result = next_step
+            .map(|s| s.stack.last().unwrap_or(Word::zero()))
+            .unwrap_or(Word::zero());
+
+        // Return from a call with a failure, without calling RETURN
+        if step.op != OpcodeId::RETURN
+            && step.depth != next_depth
+            && next_result == Word::zero()
+        {
+            return Some(match step.op {
+                OpcodeId::REVERT => ExecError::ExecutionReverted,
+                OpcodeId::JUMP | OpcodeId::JUMPI => ExecError::InvalidJump,
+                OpcodeId::RETURNDATACOPY => ExecError::ReturnDataOutOfBounds,
+                _ => {
+                    panic!("Cannot figure out call failure error in {:?}", step)
+                }
+            });
+        }
+
+        // Return from a {CREATE, CREATE2} with a failure, via RETURN
+        // TODO: if not self.tx_ctx.is_root and self.tx_ctx.is_create {
+        if step.op == OpcodeId::RETURN && next_result == Word::zero() {
+            let offset = step.stack.nth_last(0).unwrap();
+            let length = step.stack.nth_last(1).unwrap();
+            if length > Word::from(0x6000) {
+                return Some(ExecError::MaxCodeSizeExceeded);
+            } else if length > Word::zero()
+                && step.memory.0.len() > 0
+                && step.memory.0.get(offset.low_u64() as usize) == Some(&0xef)
+            {
+                return Some(ExecError::InvalidCode);
+            } else if Word::from(200) * length > Word::from(step.gas.0) {
+                return Some(ExecError::CodeStoreOutOfGas);
+            } else {
+                panic!("Cannot figure out RETURN error in {:?}", step);
             }
         }
-        // TODO: Figure out the other results
+        // }
+
+        // The *CALL* code was not executed
+        let next_pc = next_step.map(|s| s.pc.0).unwrap_or(1);
+        if [
+            OpcodeId::CALL,
+            OpcodeId::CALLCODE,
+            OpcodeId::DELEGATECALL,
+            OpcodeId::STATICCALL,
+            OpcodeId::CREATE,
+            OpcodeId::CREATE2,
+        ]
+        .contains(&step.op)
+            && next_result == Word::zero()
+            && next_pc != 0
+        {
+            if step.depth == 1025 {
+                return Some(ExecError::Depth);
+            }
+            // TODO: address_collision
+            if step.op == OpcodeId::CREATE2 {
+                // NOTE: We don't expect Address Collision in CREATE because in that case, the
+                // Address is always unique (the probability of collision is negligible).
+                let _value = step.stack.nth_last(0).unwrap();
+                let _offset = step.stack.nth_last(1).unwrap();
+                let _length = step.stack.nth_last(2).unwrap();
+                let _salt = step.stack.nth_last(3).unwrap();
+                // TODO: Calculate address
+                let _address = Address::zero();
+                // TODO:
+                // if Some(_) = self.get_account(_address) {
+                //      return Some(ExecError::ContractAddressCollision);
+                // }
+            }
+
+            // TODO: insufficient_balance
+            let _value = match step.op {
+                OpcodeId::CALL | OpcodeId::CALLCODE => {
+                    step.stack.nth_last(2).unwrap()
+                }
+                OpcodeId::CREATE | OpcodeId::CREATE2 => {
+                    step.stack.nth_last(0).unwrap()
+                }
+                _ => Word::zero(),
+            };
+            // TODO
+            // let caller_address = self.tx_ctx.caller_addr();
+            // let caller = self.get_account(caller_address)
+            // if caller.balance < value {
+            //      return Some(ExecError::InsufficientBalance);
+            // }
+
+            panic!(
+                "Cannot figure out *CALL* code not executed error in {:?}",
+                step
+            );
+        }
+
         None
     }
 }
@@ -357,71 +470,44 @@ impl<'a> CircuitInputStateRef<'a> {
 mod tracer_tests {
     use super::*;
     use crate::{
-        address, bytecode,
+        bytecode,
         bytecode::Bytecode,
         eth_types::Word,
-        evm::{memory::Memory, stack::Stack, Gas, OpcodeId},
-        external_tracer::{self as tracer, trace},
-        geth_errors::*,
+        evm::{stack::Stack, Gas, OpcodeId},
         mock, word,
     };
 
-    //
-    // Useful test functions
-    //
+    // Helper struct that contains a CircuitInputBuilder, a particuar tx and a particular execution
+    // step so that we can easily get a CircuitInputStateRef to have a context in order to get the
+    // error at a given step.
+    struct CircuitInputBuilderTx {
+        builder: CircuitInputBuilder,
+        tx: Transaction,
+        tx_ctx: TransactionContext,
+        step: ExecStep,
+    }
 
-    // Generate a trace with code_a and code_b, where code_b is in address 0x123
-    // fn trace_code_2(code_a: &Bytecode, code_b: &Bytecode) -> Vec<GethExecStep> {
-    //     // trace_code_2_gas(code_a, code_b, Gas(1_000_000u64))
-    //     let eth_block = mock::new_block();
-    //     let eth_tx = mock::new_tx(&eth_block);
-    //     let block_ctants = BlockConstants::from_eth_block(
-    //         &eth_block,
-    //         &eth_types::Word::one(),
-    //         &address!("0x00000000000000000000000000000000c014ba5e"),
-    //     );
-    //     let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
-    //     let tracer_account_a = mock::new_tracer_account(code_a);
-    //     let mut tracer_account_b = mock::new_tracer_account(code_b);
-    //     tracer_account_b.address =
-    //         address!("0x0000000000000000000000000000000000000123");
-    //     trace(
-    //         &block_ctants,
-    //         &tracer_tx,
-    //         &[tracer_account_a, tracer_account_b],
-    //     )
-    //     .unwrap()
-    //     .to_vec()
-    // }
+    impl CircuitInputBuilderTx {
+        fn new(block: &mock::BlockData, geth_step: &GethExecStep) -> Self {
+            Self {
+                builder: CircuitInputBuilder::new(
+                    block.eth_block.clone(),
+                    block.block_ctants.clone(),
+                ),
+                tx: Transaction::new(&block.eth_tx),
+                tx_ctx: TransactionContext::new(&block.eth_tx),
+                step: ExecStep::new(geth_step, GlobalCounter(0)),
+            }
+        }
 
-    // Generate a trace with code_a and code_b, where code_b is in address 0x123, and the tx has
-    // the given gas limit.
-    // fn trace_code_2_gas(
-    //     code_a: &Bytecode,
-    //     code_b: &Bytecode,
-    //     gas: Gas,
-    // ) -> Vec<GethExecStep> {
-    //     let eth_block = mock::new_block();
-    //     let mut eth_tx = mock::new_tx(&eth_block);
-    //     eth_tx.gas = Word::from(gas.0);
-    //     let block_ctants = BlockConstants::from_eth_block(
-    //         &eth_block,
-    //         &eth_types::Word::one(),
-    //         &address!("0x00000000000000000000000000000000c014ba5e"),
-    //     );
-    //     let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
-    //     let tracer_account_a = mock::new_tracer_account(code_a);
-    //     let mut tracer_account_b = mock::new_tracer_account(code_b);
-    //     tracer_account_b.address =
-    //         address!("0x0000000000000000000000000000000000000123");
-    //     trace(
-    //         &block_ctants,
-    //         &tracer_tx,
-    //         &[tracer_account_a, tracer_account_b],
-    //     )
-    //     .unwrap()
-    //     .to_vec()
-    // }
+        fn state_ref<'a>(&'a mut self) -> CircuitInputStateRef {
+            self.builder.state_ref(
+                &mut self.tx,
+                &mut self.tx_ctx,
+                &mut self.step,
+            )
+        }
+    }
 
     //
     // Errors ignored
@@ -460,19 +546,12 @@ mod tracer_tests {
                  PUSH2(0xab)
                  STOP
         };
-        let eth_block = mock::new_block();
-        let mut eth_tx = mock::new_tx(&eth_block);
-        eth_tx.gas = Word::from(1_000_000_000_000_000u64);
-        let block_ctants = BlockConstants::from_eth_block(
-            &eth_block,
-            &eth_types::Word::one(),
-            &address!("0x00000000000000000000000000000000c014ba5e"),
-        );
-        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
-        let tracer_account = mock::new_tracer_account(&code);
-        let struct_logs = trace(&block_ctants, &tracer_tx, &[tracer_account])
-            .unwrap()
-            .to_vec();
+        let block = mock::BlockData::new_single_tx_trace_code_gas(
+            &code,
+            Gas(1_000_000_000_000_000u64),
+        )
+        .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
 
         // get last CALL
         let (index, last_step) = struct_logs
@@ -727,6 +806,7 @@ mod tracer_tests {
         // TODO: check CallContext is inside Create or Create2
         let offset = step.stack.nth_last(0).unwrap();
         let length = step.stack.nth_last(1).unwrap();
+        println!("DBG {:#?}", step);
         step.op == OpcodeId::RETURN
             && step.error.is_none()
             && result(next_step) == Word::zero()
@@ -774,9 +854,6 @@ mod tracer_tests {
             code_b.write_op(OpcodeId::MSTORE);
         }
         let code_b_end = bytecode! {
-            // PUSH1(0xef) // value
-            // PUSH1(0x00) // offset
-            // MSTORE
             PUSH1(len) // length
             PUSH1(0x00) // offset
             PUSH1(0x00) // value
@@ -788,28 +865,24 @@ mod tracer_tests {
         let block =
             mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
                 .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
 
         // get last RETURN
-        let (index, last_step) = struct_logs
+        let (index, step) = block
+            .geth_trace
+            .struct_logs
             .iter()
             .enumerate()
             .rev()
             .find(|(_, s)| s.op == OpcodeId::RETURN)
             .unwrap();
-        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_invalid_code(step, next_step), true);
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_invalid_code(
-                &struct_logs[index],
-                struct_logs.get(index + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::InvalidCode)
         );
-        // Unfortunately the trace doesn't record errors generated by a CALL.  We only get the
-        // success = 0 the next step's stack
-        // assert_eq!(last_step.error, None);
-        // assert_eq!(struct_logs[index + 1].op, OpcodeId::PUSH2);
-        // assert_eq!(struct_logs[index + 1].stack, Stack(vec![Word::from(0)])); // success = 0
     }
 
     fn check_err_max_code_size_exceeded(
@@ -826,7 +899,6 @@ mod tracer_tests {
 
     #[test]
     fn tracer_err_max_code_size_exceeded() {
-        // let code_len = 0x6000 + 1;
         let code_len = 0x6000 + 1;
         let code_creator = bytecode! {
             PUSH1(Word::zero()) // value
@@ -865,9 +937,6 @@ mod tracer_tests {
             code_b.write_op(OpcodeId::MSTORE);
         }
         let code_b_end = bytecode! {
-            // PUSH1(0xef) // value
-            // PUSH1(0x00) // offset
-            // MSTORE
             PUSH32(len) // length
             PUSH1(0x00) // offset
             PUSH1(0x00) // value
@@ -879,22 +948,23 @@ mod tracer_tests {
         let block =
             mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
                 .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
 
         // get last RETURN
-        let (index, last_step) = struct_logs
+        let (index, step) = block
+            .geth_trace
+            .struct_logs
             .iter()
             .enumerate()
             .rev()
             .find(|(_, s)| s.op == OpcodeId::RETURN)
             .unwrap();
-        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_max_code_size_exceeded(step, next_step), true);
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_max_code_size_exceeded(
-                &struct_logs[index],
-                struct_logs.get(index + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::MaxCodeSizeExceeded)
         );
     }
 
@@ -925,18 +995,20 @@ mod tracer_tests {
             JUMP
             STOP
         };
-        let index_jump = 1;
+        let index = 1; // JUMP
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
         assert_eq!(block.geth_trace.struct_logs.len(), 2);
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_invalid_jump(step, next_step), true);
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_invalid_jump(
-                &block.geth_trace.struct_logs[index_jump],
-                block.geth_trace.struct_logs.get(index_jump + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::InvalidJump)
         );
-        // println!("{:#?}", block.geth_trace.struct_logs);
-        // The error is not found in the GethExecStep. :(
+
+        // With CALL
 
         let code_a = bytecode! {
             PUSH1(0x0) // retLength
@@ -949,17 +1021,17 @@ mod tracer_tests {
 
             PUSH2(0xaa)
         };
-        let index_jump = 8;
+        let index = 8; // JUMP
         let block = mock::BlockData::new_single_tx_trace_code_2(&code_a, &code)
             .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_invalid_jump(step, next_step), true);
 
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_invalid_jump(
-                &struct_logs[index_jump],
-                struct_logs.get(index_jump + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::InvalidJump)
         );
     }
 
@@ -983,17 +1055,20 @@ mod tracer_tests {
             PUSH3(0x12)
             STOP
         };
-        let index_revert = 2;
+        let index = 2; // REVERT
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
         assert_eq!(block.geth_trace.struct_logs.len(), 3);
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_execution_reverted(step, next_step), true);
 
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_execution_reverted(
-                &block.geth_trace.struct_logs[index_revert],
-                block.geth_trace.struct_logs.get(index_revert + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::ExecutionReverted)
         );
+
+        // With CALL
 
         let code_a = bytecode! {
             PUSH1(0x0) // retLength
@@ -1007,17 +1082,17 @@ mod tracer_tests {
 
             PUSH2(0xaa)
         };
-        let index_jump = 10;
+        let index = 10; // REVERT
         let block = mock::BlockData::new_single_tx_trace_code_2(&code_a, &code)
             .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_execution_reverted(&step, next_step), true);
 
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_execution_reverted(
-                &struct_logs[index_jump],
-                struct_logs.get(index_jump + 1)
-            ),
-            true
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::ExecutionReverted)
         );
     }
 
@@ -1062,23 +1137,24 @@ mod tracer_tests {
         let block =
             mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
                 .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
 
         // get last RETURNDATACOPY
-        let (index, last_step) = struct_logs
+        let (index, step) = block
+            .geth_trace
+            .struct_logs
             .iter()
             .enumerate()
             .rev()
             .find(|(_, s)| s.op == OpcodeId::RETURNDATACOPY)
             .unwrap();
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(check_err_return_data_out_of_bounds(&step, next_step), true);
 
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            check_err_return_data_out_of_bounds(
-                &last_step,
-                struct_logs.get(index + 1)
-            ),
-            true
-        )
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::ReturnDataOutOfBounds)
+        );
     }
 
     //
@@ -1094,10 +1170,16 @@ mod tracer_tests {
         };
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
 
-        assert_eq!(block.geth_trace.struct_logs[2].op, OpcodeId::MSTORE);
+        let index = 2; // MSTORE
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(step.op, OpcodeId::MSTORE);
+        assert_eq!(step.error, Some(GETH_ERR_GAS_UINT_OVERFLOW.to_string()));
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            block.geth_trace.struct_logs[2].error,
-            Some(GETH_ERR_GAS_UINT_OVERFLOW.to_string())
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::GasUintOverflow)
         );
     }
 
@@ -1107,16 +1189,23 @@ mod tracer_tests {
         code.write_op(OpcodeId::PC);
         code.write(0x0f);
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
-        let last_step = &block.geth_trace.struct_logs
-            [block.geth_trace.struct_logs.len() - 1];
 
-        assert_eq!(last_step.op, OpcodeId::INVALID(0x0f));
+        let index = block.geth_trace.struct_logs.len() - 1; // 0x0f
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(step.op, OpcodeId::INVALID(0x0f));
         assert_eq!(
-            last_step.error,
+            step.error,
             Some(format!(
                 "{}: opcode 0xf not defined",
                 GETH_ERR_INVALID_OPCODE
             ))
+        );
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
+        assert_eq!(
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::InvalidOpcode)
         );
     }
 
@@ -1143,12 +1232,17 @@ mod tracer_tests {
         let block =
             mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
                 .unwrap();
-        let struct_logs = block.geth_trace.struct_logs;
 
-        assert_eq!(struct_logs[9].op, OpcodeId::SSTORE);
+        let index = 9; // SSTORE
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
+        assert_eq!(step.op, OpcodeId::SSTORE);
+        assert_eq!(step.error, Some(GETH_ERR_WRITE_PROTECTION.to_string()));
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
         assert_eq!(
-            struct_logs[9].error,
-            Some(GETH_ERR_WRITE_PROTECTION.to_string())
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::WriteProtection)
         );
     }
 
@@ -1159,20 +1253,10 @@ mod tracer_tests {
             PUSH1(0x1)
             PUSH1(0x2)
         };
-
-        let eth_block = mock::new_block();
-        let mut eth_tx = mock::new_tx(&eth_block);
-        eth_tx.gas = Word::from(4);
-        let block_ctants = BlockConstants::from_eth_block(
-            &eth_block,
-            &eth_types::Word::one(),
-            &address!("0x00000000000000000000000000000000c014ba5e"),
-        );
-        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
-        let tracer_account = mock::new_tracer_account(&code);
-        let struct_logs = trace(&block_ctants, &tracer_tx, &[tracer_account])
-            .unwrap()
-            .to_vec();
+        let block =
+            mock::BlockData::new_single_tx_trace_code_gas(&code, Gas(4))
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
 
         assert_eq!(struct_logs[1].error, Some(GETH_ERR_OUT_OF_GAS.to_string()));
     }
@@ -1184,12 +1268,19 @@ mod tracer_tests {
             code.push(2, Word::from(i));
         }
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
-        let last_step = &block.geth_trace.struct_logs
-            [block.geth_trace.struct_logs.len() - 1];
 
+        let index = block.geth_trace.struct_logs.len() - 1; // PUSH2
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
         assert_eq!(
-            last_step.error,
+            step.error,
             Some(format!("{} 1024 (1023)", GETH_ERR_STACK_OVERFLOW))
+        );
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
+        assert_eq!(
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::StackOverflow)
         );
     }
 
@@ -1200,9 +1291,18 @@ mod tracer_tests {
         };
         let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
 
+        let index = 0; // SWAP5
+        let step = &block.geth_trace.struct_logs[index];
+        let next_step = block.geth_trace.struct_logs.get(index + 1);
         assert_eq!(
-            block.geth_trace.struct_logs[0].error,
+            step.error,
             Some(format!("{} (0 <=> 6)", GETH_ERR_STACK_UNDERFLOW))
+        );
+
+        let mut builder = CircuitInputBuilderTx::new(&block, &step);
+        assert_eq!(
+            builder.state_ref().get_step_err(&step, next_step),
+            Some(ExecError::StackUnderflow)
         );
     }
 }
