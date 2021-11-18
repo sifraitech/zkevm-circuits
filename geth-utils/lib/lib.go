@@ -41,6 +41,7 @@ func CreateTrace(config *C.char) *C.char {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to marshal logs, err: %v\n", err)
 	}
+	// fmt.Printf("DBG2\n%v\n", string(bytes))
 
 	return C.CString(string(bytes))
 }

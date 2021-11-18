@@ -179,6 +179,7 @@ impl<'de> Deserialize<'de> for GethExecStep {
         D: serde::Deserializer<'de>,
     {
         let s = GethExecStepInternal::deserialize(deserializer)?;
+        // println!("DBG1 op: {:?}, mem: {:?}", s.op, s.memory);
         Ok(GethExecStep {
             pc: s.pc,
             op: s.op,
