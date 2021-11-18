@@ -4,10 +4,43 @@ use crate::eth_types::{self, Address, GethExecStep, GethExecTrace};
 use crate::evm::GlobalCounter;
 use crate::evm::OpcodeId;
 use crate::exec_trace::OperationRef;
+use crate::geth_errors::*;
 use crate::operation::container::OperationContainer;
 use crate::operation::{Op, Operation};
 use crate::{BlockConstants, Error};
 use core::fmt::Debug;
+
+/// Out of Gas errors by opcode
+#[derive(Debug)]
+pub enum OogError {
+    /// Out of Gas for opcodes which have non-zero constant gas cost
+    Constant,
+    /// Out of Gas for opcodes MLOAD, MSTORE, MSTORE8, CREATE, RETURN, REVERT, which have pure
+    /// memory expansion gas cost
+    PureMemory,
+    /// Out of Gas for SHA3
+    Sha3,
+    /// Out of Gas for CALLDATACOPY
+    CallDataCopy,
+    /// Out of Gas for CODECOPY
+    CodeCopy,
+    /// Out of Gas for EXTCODECOPY
+    ExtCodeCopy,
+    /// Out of Gas for RETURNDATACOPY
+    ReturnDataCopy,
+    /// Out of Gas for LOG
+    Log,
+    /// Out of Gas for CALL
+    Call,
+    /// Out of Gas for CALLCODE
+    CallCode,
+    /// Out of Gas for DELEGATECALL
+    DelegateCall,
+    /// Out of Gas for CREATE2
+    Create2,
+    /// Out of Gas for STATICCALL
+    StaticCall,
+}
 
 /// EVM Execution Error
 #[derive(Debug)]
@@ -18,33 +51,8 @@ pub enum ExecError {
     StackOverflow,
     /// For opcodes which pop, DUP and SWAP, which peek deeper element directly
     StackUnderflow,
-    /// Out of Gas for opcodes which have non-zero constant gas cost
-    OogConstant,
-    /// Out of Gas for opcodes MLOAD, MSTORE, MSTORE8, CREATE, RETURN, REVERT, which have pure
-    /// memory expansion gas cost
-    OogPureMemory,
-    /// Out of Gas for SHA3
-    OogSha3,
-    /// Out of Gas for CALLDATACOPY
-    OogCallDataCopy,
-    /// Out of Gas for CODECOPY
-    OogCodeCopy,
-    /// Out of Gas for EXTCODECOPY
-    OogExtCodeCopy,
-    /// Out of Gas for RETURNDATACOPY
-    OogReturnDataCopy,
-    /// Out of Gas for LOG
-    OogLog,
-    /// Out of Gas for CALL
-    OogCall,
-    /// Out of Gas for CALLCODE
-    OogCallCode,
-    /// Out of Gas for DELEGATECALL
-    OogDelegateCall,
-    /// Out of Gas for CREATE2
-    OogCreate2,
-    /// Out of Gas for STATICCALL
-    OogStaticCall,
+    /// Out of Gas
+    Oog(OogError),
     /// For SSTORE, LOG0, LOG1, LOG2, LOG3, LOG4, CREATE, CALL, CREATE2, SELFDESTRUCT
     WriteProtection,
     /// For CALL, CALLCODE, DELEGATECALL, STATICCALL
@@ -59,6 +67,8 @@ pub enum ExecError {
     InvalidJump,
     /// For RETURNDATACOPY
     ReturnDataOutOfBounds,
+    /// Internal calculation of gas overflow
+    GasUintOverflow,
 }
 
 /// An execution step of the EVM.
@@ -291,5 +301,908 @@ impl<'a> CircuitInputBuilder {
         }
         self.block.txs.push(tx);
         Ok(())
+    }
+}
+
+impl<'a> CircuitInputStateRef<'a> {
+    fn get_step_err(
+        &self,
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> Option<ExecError> {
+        if let Some(error) = &step.error {
+            if error == GETH_ERR_GAS_UINT_OVERFLOW {
+                return Some(ExecError::GasUintOverflow);
+            } else if error == GETH_ERR_WRITE_PROTECTION {
+                return Some(ExecError::WriteProtection);
+            } else if error == GETH_ERR_OUT_OF_GAS {
+                let oog_err = match step.op {
+                    OpcodeId::SHA3 => OogError::Sha3,
+                    OpcodeId::CALLDATACOPY => OogError::CallDataCopy,
+                    OpcodeId::CODECOPY => OogError::CodeCopy,
+                    OpcodeId::EXTCODECOPY => OogError::ExtCodeCopy,
+                    OpcodeId::RETURNDATACOPY => OogError::ReturnDataCopy,
+                    OpcodeId::LOG0
+                    | OpcodeId::LOG2
+                    | OpcodeId::LOG3
+                    | OpcodeId::LOG4 => OogError::ReturnDataCopy,
+                    OpcodeId::CALL => OogError::Call,
+                    OpcodeId::CALLCODE => OogError::CallCode,
+                    OpcodeId::DELEGATECALL => OogError::DelegateCall,
+                    OpcodeId::CREATE2 => OogError::Create2,
+                    OpcodeId::STATICCALL => OogError::StaticCall,
+                    OpcodeId::MLOAD
+                    | OpcodeId::MSTORE
+                    | OpcodeId::MSTORE8
+                    | OpcodeId::CREATE
+                    | OpcodeId::RETURN
+                    | OpcodeId::REVERT => OogError::PureMemory,
+                    _ => OogError::Constant,
+                };
+                return Some(ExecError::Oog(oog_err));
+            } else if error.starts_with(GETH_ERR_STACK_OVERFLOW) {
+                return Some(ExecError::StackOverflow);
+            } else if error.starts_with(GETH_ERR_STACK_UNDERFLOW) {
+                return Some(ExecError::StackUnderflow);
+            } else if error.starts_with(GETH_ERR_INVALID_OPCODE) {
+                return Some(ExecError::InvalidOpcode);
+            }
+        }
+        // TODO: Figure out the other results
+        None
+    }
+}
+
+#[cfg(test)]
+mod tracer_tests {
+    use super::*;
+    use crate::{
+        address, bytecode,
+        bytecode::Bytecode,
+        eth_types::Word,
+        evm::{memory::Memory, stack::Stack, Gas, OpcodeId},
+        external_tracer::{self as tracer, trace},
+        geth_errors::*,
+        mock, word,
+    };
+
+    //
+    // Useful test functions
+    //
+
+    // Generate a trace with code_a and code_b, where code_b is in address 0x123
+    // fn trace_code_2(code_a: &Bytecode, code_b: &Bytecode) -> Vec<GethExecStep> {
+    //     // trace_code_2_gas(code_a, code_b, Gas(1_000_000u64))
+    //     let eth_block = mock::new_block();
+    //     let eth_tx = mock::new_tx(&eth_block);
+    //     let block_ctants = BlockConstants::from_eth_block(
+    //         &eth_block,
+    //         &eth_types::Word::one(),
+    //         &address!("0x00000000000000000000000000000000c014ba5e"),
+    //     );
+    //     let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
+    //     let tracer_account_a = mock::new_tracer_account(code_a);
+    //     let mut tracer_account_b = mock::new_tracer_account(code_b);
+    //     tracer_account_b.address =
+    //         address!("0x0000000000000000000000000000000000000123");
+    //     trace(
+    //         &block_ctants,
+    //         &tracer_tx,
+    //         &[tracer_account_a, tracer_account_b],
+    //     )
+    //     .unwrap()
+    //     .to_vec()
+    // }
+
+    // Generate a trace with code_a and code_b, where code_b is in address 0x123, and the tx has
+    // the given gas limit.
+    // fn trace_code_2_gas(
+    //     code_a: &Bytecode,
+    //     code_b: &Bytecode,
+    //     gas: Gas,
+    // ) -> Vec<GethExecStep> {
+    //     let eth_block = mock::new_block();
+    //     let mut eth_tx = mock::new_tx(&eth_block);
+    //     eth_tx.gas = Word::from(gas.0);
+    //     let block_ctants = BlockConstants::from_eth_block(
+    //         &eth_block,
+    //         &eth_types::Word::one(),
+    //         &address!("0x00000000000000000000000000000000c014ba5e"),
+    //     );
+    //     let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
+    //     let tracer_account_a = mock::new_tracer_account(code_a);
+    //     let mut tracer_account_b = mock::new_tracer_account(code_b);
+    //     tracer_account_b.address =
+    //         address!("0x0000000000000000000000000000000000000123");
+    //     trace(
+    //         &block_ctants,
+    //         &tracer_tx,
+    //         &[tracer_account_a, tracer_account_b],
+    //     )
+    //     .unwrap()
+    //     .to_vec()
+    // }
+
+    //
+    // Errors ignored
+    //
+
+    fn check_err_depth(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        [
+            OpcodeId::CALL,
+            OpcodeId::CALLCODE,
+            OpcodeId::DELEGATECALL,
+            OpcodeId::STATICCALL,
+            OpcodeId::CREATE,
+            OpcodeId::CREATE2,
+        ]
+        .contains(&step.op)
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && step.depth == 1025
+    }
+
+    #[test]
+    fn tracer_err_depth() {
+        // Recursive CALL will exaust the call depth
+        let code = bytecode! {
+                 PUSH1(0x0) // retLength
+                 PUSH1(0x0) // retOffset
+                 PUSH1(0x0) // argsLength
+                 PUSH1(0x0) // argsOffset
+                 PUSH1(0x42) // value
+                 PUSH32(word!("0x0000000000000000000000000000000000000000")) // addr
+                 PUSH32(0x8_000_000_000_000u64) // gas
+                 CALL
+                 PUSH2(0xab)
+                 STOP
+        };
+        let eth_block = mock::new_block();
+        let mut eth_tx = mock::new_tx(&eth_block);
+        eth_tx.gas = Word::from(1_000_000_000_000_000u64);
+        let block_ctants = BlockConstants::from_eth_block(
+            &eth_block,
+            &eth_types::Word::one(),
+            &address!("0x00000000000000000000000000000000c014ba5e"),
+        );
+        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
+        let tracer_account = mock::new_tracer_account(&code);
+        let struct_logs = trace(&block_ctants, &tracer_tx, &[tracer_account])
+            .unwrap()
+            .to_vec();
+
+        // get last CALL
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::CALL)
+            .unwrap();
+        assert_eq!(last_step.op, OpcodeId::CALL);
+        assert_eq!(last_step.depth, 1025u16);
+        // Unfortunately the trace doesn't record errors generated by a CALL.  We only get the
+        // success = 0 the next step's stack
+        assert_eq!(last_step.error, None);
+        assert_eq!(struct_logs[index + 1].op, OpcodeId::PUSH2);
+        assert_eq!(struct_logs[index + 1].depth, 1025u16);
+        assert_eq!(struct_logs[index + 1].stack, Stack(vec![Word::from(0)])); // success = 0
+        assert_eq!(struct_logs[index + 2].op, OpcodeId::STOP);
+        assert_eq!(struct_logs[index + 2].depth, 1025u16);
+
+        // Check
+        assert_eq!(
+            check_err_depth(&last_step, struct_logs.get(index + 1)),
+            true
+        );
+    }
+
+    // TODO
+    fn check_err_insufficient_balance(
+        _step: &GethExecStep,
+        _next_step: Option<&GethExecStep>,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    #[test]
+    fn tracer_err_insufficient_balance() {
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH32(Word::from(0x1_000)) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+        let code_b = bytecode! {
+            PUSH1(0x01) // value
+            PUSH1(0x02) // key
+            SSTORE
+
+            PUSH3(0xbb)
+        };
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last CALL
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::CALL)
+            .unwrap();
+        // println!("{:#?}", &struct_logs[index - 1..index + 3]);
+        // Unfortunately the trace doesn't record errors generated by a CALL.  We only get the
+        // success = 0 the next step's stack
+        assert_eq!(last_step.error, None);
+        assert_eq!(struct_logs[index + 1].op, OpcodeId::PUSH2);
+        assert_eq!(struct_logs[index + 1].stack, Stack(vec![Word::from(0)])); // success = 0
+    }
+
+    fn check_err_address_collision(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        // TODO: calculate address and check it against existing addresses in the state trie
+        let _value = step.stack.nth_last(0).unwrap();
+        let _offset = step.stack.nth_last(1).unwrap();
+        let _length = step.stack.nth_last(2).unwrap();
+        step.op == OpcodeId::CREATE2
+            && step.error.is_none()
+            && next_step.map(|s| s.pc.0).unwrap_or(1) != 0
+            && result(next_step) == Word::zero()
+    }
+
+    #[test]
+    fn tracer_err_address_collision() {
+        let code_creator = bytecode! {
+            PUSH1(0x00) // value
+            PUSH1(0x00) // offset
+            MSTORE
+            PUSH1(0x01) // length
+            PUSH1(0x00) // offset
+            RETURN
+        };
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+
+        let mut code_b = Bytecode::default();
+        // pad code_creator to multiple of 32 bytes
+        let len = code_creator.code().len();
+        let code_creator: Vec<u8> = code_creator
+            .code()
+            .iter()
+            .cloned()
+            .chain(0u8..((32 - len % 32) as u8))
+            .collect();
+        for (index, word) in code_creator.chunks(32).enumerate() {
+            code_b.push(32, Word::from_big_endian(word));
+            code_b.push(32, Word::from(index * 32));
+            code_b.write_op(OpcodeId::MSTORE);
+        }
+        let code_b_end = bytecode! {
+            PUSH1(0x00) // salt
+            PUSH1(len) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // value
+            CREATE2
+
+            PUSH1(0x00) // salt
+            PUSH1(len) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // value
+            CREATE2
+
+            PUSH3(0xbb)
+        };
+        code_b.append(&code_b_end);
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last CREATE2
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::CREATE2)
+            .unwrap();
+        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        assert_eq!(
+            check_err_address_collision(
+                &struct_logs[index],
+                struct_logs.get(index + 1)
+            ),
+            true
+        );
+    }
+
+    fn check_err_code_store_out_of_gas(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        // TODO: check CallContext is inside Create or Create2
+        let length = step.stack.nth_last(1).unwrap();
+        step.op == OpcodeId::RETURN
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && Word::from(200) * length > Word::from(step.gas.0)
+    }
+
+    #[test]
+    fn tracer_err_code_store_out_of_gas() {
+        let code_len = 0x100;
+        let code_creator = bytecode! {
+            PUSH1(Word::zero()) // value
+            PUSH32(code_len) // offset
+            MSTORE
+            PUSH32(code_len) // length
+            PUSH1(0x00) // offset
+            RETURN
+        };
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+
+        let mut code_b = Bytecode::default();
+        // pad code_creator to multiple of 32 bytes
+        let len = code_creator.code().len();
+        let code_creator: Vec<u8> = code_creator
+            .code()
+            .iter()
+            .cloned()
+            .chain(0u8..((32 - len % 32) as u8))
+            .collect();
+        for (index, word) in code_creator.chunks(32).enumerate() {
+            code_b.push(32, Word::from_big_endian(word));
+            code_b.push(32, Word::from(index * 32));
+            code_b.write_op(OpcodeId::MSTORE);
+        }
+        let code_b_end = bytecode! {
+            PUSH32(len) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // value
+            CREATE
+
+            PUSH3(0xbb)
+        };
+        code_b.append(&code_b_end);
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last RETURN
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::RETURN)
+            .unwrap();
+        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        assert_eq!(
+            check_err_code_store_out_of_gas(
+                &struct_logs[index],
+                struct_logs.get(index + 1)
+            ),
+            true
+        );
+    }
+
+    fn check_err_invalid_code(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        // TODO: check CallContext is inside Create or Create2
+        let offset = step.stack.nth_last(0).unwrap();
+        let length = step.stack.nth_last(1).unwrap();
+        step.op == OpcodeId::RETURN
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && length > Word::zero()
+            && step.memory.0.len() > 0
+            && step.memory.0.get(offset.low_u64() as usize) == Some(&0xef)
+    }
+
+    #[test]
+    fn tracer_err_invalid_code() {
+        let code_creator = bytecode! {
+            PUSH32(word!("0xef00000000000000000000000000000000000000000000000000000000000000")) // value
+            PUSH1(0x00) // offset
+            MSTORE
+            PUSH1(0x01) // length
+            PUSH1(0x00) // offset
+            RETURN
+        };
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+
+        let mut code_b = Bytecode::default();
+        // pad code_creator to multiple of 32 bytes
+        let len = code_creator.code().len();
+        let code_creator: Vec<u8> = code_creator
+            .code()
+            .iter()
+            .cloned()
+            .chain(0u8..((32 - len % 32) as u8))
+            .collect();
+        for (index, word) in code_creator.chunks(32).enumerate() {
+            code_b.push(32, Word::from_big_endian(word));
+            code_b.push(32, Word::from(index * 32));
+            code_b.write_op(OpcodeId::MSTORE);
+        }
+        let code_b_end = bytecode! {
+            // PUSH1(0xef) // value
+            // PUSH1(0x00) // offset
+            // MSTORE
+            PUSH1(len) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // value
+            CREATE
+
+            PUSH3(0xbb)
+        };
+        code_b.append(&code_b_end);
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last RETURN
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::RETURN)
+            .unwrap();
+        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        assert_eq!(
+            check_err_invalid_code(
+                &struct_logs[index],
+                struct_logs.get(index + 1)
+            ),
+            true
+        );
+        // Unfortunately the trace doesn't record errors generated by a CALL.  We only get the
+        // success = 0 the next step's stack
+        // assert_eq!(last_step.error, None);
+        // assert_eq!(struct_logs[index + 1].op, OpcodeId::PUSH2);
+        // assert_eq!(struct_logs[index + 1].stack, Stack(vec![Word::from(0)])); // success = 0
+    }
+
+    fn check_err_max_code_size_exceeded(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        // TODO: check CallContext is inside Create or Create2
+        let length = step.stack.nth_last(1).unwrap();
+        step.op == OpcodeId::RETURN
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && length > Word::from(0x6000)
+    }
+
+    #[test]
+    fn tracer_err_max_code_size_exceeded() {
+        // let code_len = 0x6000 + 1;
+        let code_len = 0x6000 + 1;
+        let code_creator = bytecode! {
+            PUSH1(Word::zero()) // value
+            PUSH32(code_len) // offset
+            MSTORE
+            PUSH32(code_len) // length
+            PUSH1(0x00) // offset
+            RETURN
+        };
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x100_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+
+        let mut code_b = Bytecode::default();
+        // pad code_creator to multiple of 32 bytes
+        let len = code_creator.code().len();
+        let code_creator: Vec<u8> = code_creator
+            .code()
+            .iter()
+            .cloned()
+            .chain(0u8..((32 - len % 32) as u8))
+            .collect();
+        for (index, word) in code_creator.chunks(32).enumerate() {
+            code_b.push(32, Word::from_big_endian(word));
+            code_b.push(32, Word::from(index * 32));
+            code_b.write_op(OpcodeId::MSTORE);
+        }
+        let code_b_end = bytecode! {
+            // PUSH1(0xef) // value
+            // PUSH1(0x00) // offset
+            // MSTORE
+            PUSH32(len) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // value
+            CREATE
+
+            PUSH3(0xbb)
+        };
+        code_b.append(&code_b_end);
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last RETURN
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::RETURN)
+            .unwrap();
+        // println!("{:#?}", &struct_logs[index - 5..index + 3]);
+        assert_eq!(
+            check_err_max_code_size_exceeded(
+                &struct_logs[index],
+                struct_logs.get(index + 1)
+            ),
+            true
+        );
+    }
+
+    //
+    // Errors not reported
+    //
+
+    fn result(step: Option<&GethExecStep>) -> Word {
+        step.map(|s| s.stack.last().unwrap_or(Word::zero()))
+            .unwrap_or(Word::zero())
+    }
+
+    fn check_err_invalid_jump(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        let next_depth = next_step.map(|s| s.depth).unwrap_or(0);
+        [OpcodeId::JUMP, OpcodeId::JUMPI].contains(&step.op)
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && step.depth != next_depth
+    }
+
+    #[test]
+    fn tracer_err_invalid_jump() {
+        let code = bytecode! {
+            PUSH1(0x10)
+            JUMP
+            STOP
+        };
+        let index_jump = 1;
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        assert_eq!(block.geth_trace.struct_logs.len(), 2);
+        assert_eq!(
+            check_err_invalid_jump(
+                &block.geth_trace.struct_logs[index_jump],
+                block.geth_trace.struct_logs.get(index_jump + 1)
+            ),
+            true
+        );
+        // println!("{:#?}", block.geth_trace.struct_logs);
+        // The error is not found in the GethExecStep. :(
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            STATICCALL
+
+            PUSH2(0xaa)
+        };
+        let index_jump = 8;
+        let block = mock::BlockData::new_single_tx_trace_code_2(&code_a, &code)
+            .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        assert_eq!(
+            check_err_invalid_jump(
+                &struct_logs[index_jump],
+                struct_logs.get(index_jump + 1)
+            ),
+            true
+        );
+    }
+
+    fn check_err_execution_reverted(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        let next_depth = next_step.map(|s| s.depth).unwrap_or(0);
+        step.op == OpcodeId::REVERT
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && step.depth != next_depth
+    }
+
+    #[test]
+    fn tracer_err_execution_reverted() {
+        let code = bytecode! {
+            PUSH1(0x0)
+            PUSH2(0x0)
+            REVERT
+            PUSH3(0x12)
+            STOP
+        };
+        let index_revert = 2;
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        assert_eq!(block.geth_trace.struct_logs.len(), 3);
+
+        assert_eq!(
+            check_err_execution_reverted(
+                &block.geth_trace.struct_logs[index_revert],
+                block.geth_trace.struct_logs.get(index_revert + 1)
+            ),
+            true
+        );
+
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH2(0xaa)
+        };
+        let index_jump = 10;
+        let block = mock::BlockData::new_single_tx_trace_code_2(&code_a, &code)
+            .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        assert_eq!(
+            check_err_execution_reverted(
+                &struct_logs[index_jump],
+                struct_logs.get(index_jump + 1)
+            ),
+            true
+        );
+    }
+
+    fn check_err_return_data_out_of_bounds(
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> bool {
+        let next_depth = next_step.map(|s| s.depth).unwrap_or(0);
+        step.op == OpcodeId::RETURNDATACOPY
+            && step.error.is_none()
+            && result(next_step) == Word::zero()
+            && step.depth != next_depth
+    }
+
+    #[test]
+    fn tracer_err_return_data_out_of_bounds() {
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH1(0x0) // value
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            CALL
+
+            PUSH1(0x02) // length
+            PUSH1(0x00) // offset
+            PUSH1(0x00) // destOffset
+            RETURNDATACOPY
+
+            PUSH2(0xaa)
+        };
+        let code_b = bytecode! {
+            PUSH2(0x42) // value
+            PUSH2(0x00) // offset
+            MSTORE
+            PUSH1(0x01) // length
+            PUSH1(0x00) // offset
+            RETURN
+        };
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        // get last RETURNDATACOPY
+        let (index, last_step) = struct_logs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.op == OpcodeId::RETURNDATACOPY)
+            .unwrap();
+
+        assert_eq!(
+            check_err_return_data_out_of_bounds(
+                &last_step,
+                struct_logs.get(index + 1)
+            ),
+            true
+        )
+    }
+
+    //
+    // Errors Reported
+    //
+
+    #[test]
+    fn tracer_err_gas_uint_overflow() {
+        let code = bytecode! {
+            PUSH32(0x42) // value
+            PUSH32(0x1_000_000_000_000_000_000u128) // offset
+            MSTORE
+        };
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+
+        assert_eq!(block.geth_trace.struct_logs[2].op, OpcodeId::MSTORE);
+        assert_eq!(
+            block.geth_trace.struct_logs[2].error,
+            Some(GETH_ERR_GAS_UINT_OVERFLOW.to_string())
+        );
+    }
+
+    #[test]
+    fn tracer_err_invalid_opcode() {
+        let mut code = bytecode::Bytecode::default();
+        code.write_op(OpcodeId::PC);
+        code.write(0x0f);
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        let last_step = &block.geth_trace.struct_logs
+            [block.geth_trace.struct_logs.len() - 1];
+
+        assert_eq!(last_step.op, OpcodeId::INVALID(0x0f));
+        assert_eq!(
+            last_step.error,
+            Some(format!(
+                "{}: opcode 0xf not defined",
+                GETH_ERR_INVALID_OPCODE
+            ))
+        );
+    }
+
+    #[test]
+    fn tracer_err_write_protection() {
+        let code_a = bytecode! {
+            PUSH1(0x0) // retLength
+            PUSH1(0x0) // retOffset
+            PUSH1(0x0) // argsLength
+            PUSH1(0x0) // argsOffset
+            PUSH32(word!("0x0000000000000000000000000000000000000123")) // addr
+            PUSH32(0x10_000) // gas
+            STATICCALL
+
+            PUSH2(0xaa)
+        };
+        let code_b = bytecode! {
+            PUSH1(0x01) // value
+            PUSH1(0x02) // key
+            SSTORE
+
+            PUSH3(0xbb)
+        };
+        let block =
+            mock::BlockData::new_single_tx_trace_code_2(&code_a, &code_b)
+                .unwrap();
+        let struct_logs = block.geth_trace.struct_logs;
+
+        assert_eq!(struct_logs[9].op, OpcodeId::SSTORE);
+        assert_eq!(
+            struct_logs[9].error,
+            Some(GETH_ERR_WRITE_PROTECTION.to_string())
+        );
+    }
+
+    #[test]
+    fn tracer_err_out_of_gas() {
+        let code = bytecode! {
+            PUSH1(0x0)
+            PUSH1(0x1)
+            PUSH1(0x2)
+        };
+
+        let eth_block = mock::new_block();
+        let mut eth_tx = mock::new_tx(&eth_block);
+        eth_tx.gas = Word::from(4);
+        let block_ctants = BlockConstants::from_eth_block(
+            &eth_block,
+            &eth_types::Word::one(),
+            &address!("0x00000000000000000000000000000000c014ba5e"),
+        );
+        let tracer_tx = tracer::Transaction::from_eth_tx(&eth_tx);
+        let tracer_account = mock::new_tracer_account(&code);
+        let struct_logs = trace(&block_ctants, &tracer_tx, &[tracer_account])
+            .unwrap()
+            .to_vec();
+
+        assert_eq!(struct_logs[1].error, Some(GETH_ERR_OUT_OF_GAS.to_string()));
+    }
+
+    #[test]
+    fn tracer_err_stack_overflow() {
+        let mut code = bytecode::Bytecode::default();
+        for i in 0..1025 {
+            code.push(2, Word::from(i));
+        }
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+        let last_step = &block.geth_trace.struct_logs
+            [block.geth_trace.struct_logs.len() - 1];
+
+        assert_eq!(
+            last_step.error,
+            Some(format!("{} 1024 (1023)", GETH_ERR_STACK_OVERFLOW))
+        );
+    }
+
+    #[test]
+    fn tracer_err_stack_underflow() {
+        let code = bytecode! {
+            SWAP5
+        };
+        let block = mock::BlockData::new_single_tx_trace_code(&code).unwrap();
+
+        assert_eq!(
+            block.geth_trace.struct_logs[0].error,
+            Some(format!("{} (0 <=> 6)", GETH_ERR_STACK_UNDERFLOW))
+        );
     }
 }
