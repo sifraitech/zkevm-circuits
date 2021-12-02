@@ -3,6 +3,7 @@ use num_bigint::BigUint;
 use num_traits::{One, Zero};
 use std::ops::{Index, IndexMut};
 
+pub const B2: u64 = 2;
 pub const B13: u64 = 13;
 pub const B9: u64 = 9;
 
