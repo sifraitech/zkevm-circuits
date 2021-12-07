@@ -1,0 +1,13 @@
+version: '3'
+services:
+  deployer:
+    build: web3-utils
+    container_name: deployer
+    volumes:
+      - ./web3-output:/app/output
+  geth:
+    image: "ethereum/client-go:stable"
+    container_name: geth
+    ports:
+      - 8545:8545
+    command: --dev --vmdebug --http --http.addr 0.0.0.0 --http.port 8545 --http.vhosts "*" --http.corsdomain "*" --http.api "eth,net,web3,personal,txpool,miner,debug" --verbosity 6
