@@ -3,28 +3,21 @@
 use bus_mapping::eth_types::{Address, EIP1186ProofResponse, Hash, Word};
 use bus_mapping::evm::ProgramCounter;
 use bus_mapping::rpc::{BlockNumber, GethClient};
-use ethers_providers::Http;
-use integration_tests::GETH0_URL;
+use integration_tests::get_client;
 use std::env::{self, VarError};
 use std::str::FromStr;
-use url::Url;
-
-fn get_provider() -> GethClient<Http> {
-    let transport = Http::new(Url::parse(&GETH0_URL).unwrap());
-    GethClient::new(transport)
-}
 
 #[tokio::test]
 async fn test_get_block_by_number() {
-    let prov = get_provider();
+    let cli = get_client();
     let hash = Hash::from_str(
         "0xe4f7aa19a76fcf31a6adff3b400300849e39dd84076765fb3af09d05ee9d787a",
     )
     .unwrap();
     let block_by_num_latest =
-        prov.get_block_by_number(BlockNumber::Latest).await.unwrap();
+        cli.get_block_by_number(BlockNumber::Latest).await.unwrap();
     assert!(hash == block_by_num_latest.hash.unwrap());
-    let block_by_num = prov.get_block_by_number(1u64.into()).await.unwrap();
+    let block_by_num = cli.get_block_by_number(1u64.into()).await.unwrap();
     assert!(
         block_by_num.transactions[0].hash
             == block_by_num_latest.transactions[0].hash
@@ -33,25 +26,25 @@ async fn test_get_block_by_number() {
 
 #[tokio::test]
 async fn test_get_block_by_hash() {
-    let prov = get_provider();
+    let cli = get_client();
 
     let hash = Hash::from_str(
         "0xe4f7aa19a76fcf31a6adff3b400300849e39dd84076765fb3af09d05ee9d787a",
     )
     .unwrap();
-    let block_by_hash = prov.get_block_by_hash(hash).await.unwrap();
+    let block_by_hash = cli.get_block_by_hash(hash).await.unwrap();
     assert!(hash == block_by_hash.hash.unwrap());
 }
 
 #[tokio::test]
 async fn test_trace_block_by_hash() {
-    let prov = get_provider();
+    let cli = get_client();
 
     let hash = Hash::from_str(
         "0xe2d191e9f663a3a950519eadeadbd614965b694a65a318a0b8f053f2d14261ff",
     )
     .unwrap();
-    let trace_by_hash = prov.trace_block_by_hash(hash).await.unwrap();
+    let trace_by_hash = cli.trace_block_by_hash(hash).await.unwrap();
     // Since we called in the test block the same transaction twice the len
     // should be the same and != 0.
     assert!(
@@ -68,11 +61,11 @@ async fn test_trace_block_by_hash() {
 
 #[tokio::test]
 async fn test_get_contract_code() {
-    let prov = get_provider();
+    let cli = get_client();
     let contract_address =
         address!("0xd5f110b3e81de87f22fa8c5e668a5fc541c54e3d");
     let contract_code = get_contract_vec_u8();
-    let gotten_contract_code = prov
+    let gotten_contract_code = cli
         .get_code_by_address(contract_address, BlockNumber::Latest)
         .await
         .unwrap();
@@ -81,8 +74,8 @@ async fn test_get_contract_code() {
 
 #[tokio::test]
 async fn test_trace_block_by_number() {
-    let prov = get_provider();
-    let trace_by_hash = prov.trace_block_by_number(5.into()).await.unwrap();
+    let cli = get_client();
+    let trace_by_hash = cli.trace_block_by_number(5.into()).await.unwrap();
     // Since we called in the test block the same transaction twice the len
     // should be the same and != 0.
     assert!(
@@ -99,7 +92,7 @@ async fn test_trace_block_by_number() {
 
 #[tokio::test]
 async fn test_get_proof() {
-    let prov = get_provider();
+    let cli = get_client();
 
     let address =
         Address::from_str("0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842")
@@ -108,7 +101,7 @@ async fn test_get_proof() {
         "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
     )
     .unwrap()];
-    let proof = prov
+    let proof = cli
         .get_proof(address, keys, BlockNumber::Latest)
         .await
         .unwrap();

@@ -2,10 +2,7 @@
 set -e
 
 ARG_DEFAULT_SUDO=
-ARG_DEFAULT_SKIP_SETUP=
-ARG_DEFAULT_SKIP_SC_COMP=
-ARG_DEFAULT_SKIP_GENDATA=
-ARG_DEFAULT_SKIP_CLEANUP=
+ARG_DEFAULT_STEPS="setup gendata tests cleanup"
 ARG_DEFAULT_TESTS="test_rpc"
 # ARG_DEFAULT_TESTS="test_rpc test_bus-mapping"
 
@@ -14,88 +11,98 @@ usage() {
         Usage: $0 [OPTIONS]
         Options:
           --sudo         Use sudo for docker-compoes commands.
-          --skip-setup   Skip setting up docker containers.
-          --skip-sc-comp Skip Smart Contracts compilation.
-          --skip-gendata Skip generating blockhain data.
+          --steps ARG    Space separated list of steps to do.
+                         Default: "${ARG_DEFAULT_STEPS}".
           --tests ARG    Space separated list of tests to run.
                          Default: "${ARG_DEFAULT_TESTS}".
-          --skip-cleanup Skip cleaning up docker containers.
           -h | --help    Show help
 
 EOF
 }
 
 ARG_SUDO="${ARG_DEFAULT_SUDO}"
-ARG_SKIP_SETUP="${ARG_DEFAULT_SKIP_SETUP}"
-ARG_SKIP_SC_COMP="${ARG_DEFAULT_SKIP_SC_COMP}"
-ARG_SKIP_GENDATA="${ARG_DEFAULT_SKIP_GENDATA}"
-ARG_SKIP_CLEANUP="${ARG_DEFAULT_SKIP_CLEANUP}"
+ARG_STEPS="${ARG_DEFAULT_STEPS}"
 ARG_TESTS="${ARG_DEFAULT_TESTS}"
 
 while [ "$1" != "" ]; do
-    case $1 in
+    case "$1" in
         --sudo )
             ARG_SUDO=1
         ;;
-        --skip-setup )
-            ARG_SKIP_SETUP=1
-        ;;
-        --skip-sc-comp )
-            ARG_SKIP_SC_COMP=1
-        ;;
-        --skip-gendata )
-            ARG_SKIP_GENDATA=1
-        ;;
-        --skip-cleanup )
-            ARG_SKIP_CLEANUP=1
+        --steps )
+            shift
+            ARG_STEPS="$1"
         ;;
         --tests )
             shift
             ARG_TESTS="$1"
         ;;
-        -h | --help )    usage
+        -h | --help )
+            usage
             exit
         ;;
-        * )              usage
+        * )
+            echo "Unknown flag \"$1\""
+            usage
             exit 1
     esac
     shift
 done
 
+STEP_SETUP=
+STEP_GENDATA=
+STEP_TESTS=
+STEP_CLEANUP=
+
+for step in $ARG_STEPS; do
+    case "$step" in
+        setup )
+            STEP_SETUP=1
+        ;;
+        gendata )
+            STEP_GENDATA=1
+        ;;
+        tests )
+            STEP_TESTS=1
+        ;;
+        cleanup )
+            STEP_CLEANUP=1
+        ;;
+        * )
+            echo "Unknown step \"$step\""
+            usage
+            exit 1
+    esac
+done
+
 docker_compose_cmd() {
-    if [ -n $ARG_SUDO ]; then
+    if [ -n "$ARG_SUDO" ]; then
         sudo docker-compose $@
     else
         docker-compose $@
     fi
 }
 
-if [ -z $ARG_SKIP_SETUP ]; then
+if [ -n "$STEP_SETUP" ]; then
     echo "+ Setup..."
     docker_compose_cmd down -v --remove-orphans
     docker_compose_cmd up -d geth0
 fi
 
-if [ -z $ARG_SKIP_SC_COMP ]; then
-    echo "+ Smart Contracts compilation..."
-    echo "TODO"
-    # cd contracts
-    # solc *
-    # cd ..
-fi
-
-if [ -z $ARG_SKIP_GENDATA ]; then
+if [ -n "$STEP_GENDATA" ]; then
     echo "+ Gen blockchain data..."
     # TODO: Delete output.json
     cargo run --bin gen_blockchain_data
 fi
 
-for testname in $ARG_TESTS; do
-    echo "+ Running test group $testname"
-    cargo test --features $testname
-done
+if [ -n "$STEP_TESTS" ]; then
+    for testname in $ARG_TESTS; do
+        echo "+ Running test group $testname"
+        cargo test --features $testname
+    done
+fi
 
-if [ -z $ARG_SKIP_CLEANUP ]; then
+if [ -n "$STEP_CLEANUP" ]; then
     echo "+ Cleanup..."
     docker_compose_cmd down -v --remove-orphans
 fi

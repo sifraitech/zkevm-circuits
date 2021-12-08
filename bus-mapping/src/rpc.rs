@@ -82,7 +82,7 @@ pub struct EIP1186ProofResponse {
 
 /// Placeholder structure designed to contain the methods that the BusMapping
 /// needs in order to enable Geth queries.
-pub struct GethClient<P: JsonRpcClient>(P);
+pub struct GethClient<P: JsonRpcClient>(pub P);
 
 impl<P: JsonRpcClient> GethClient<P> {
     /// Generates a new `GethClient` instance.
