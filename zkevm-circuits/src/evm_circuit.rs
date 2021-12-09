@@ -1310,6 +1310,10 @@ mod test {
     #[ignore]
     #[test]
     fn bench_evm_circuit_prover() {
+        use std::fs::File;
+        use std::path::Path;
+        use pairing::bn256::G1Affine;
+        use halo2::poly::commitment::Params;
         const DEGREE: u32 = 22;
         const EXECUTION_STEPS_ROWS_MAX: usize = 1 << (DEGREE - 2);
         const OPERATIONS_ROWS_MAX: usize = 1 << (DEGREE - 2);
@@ -1351,7 +1355,18 @@ mod test {
         let setup_message =
             format!("Setup generation with degree = {}", DEGREE);
         let start1 = start_timer!(|| setup_message);
-        let params = Setup::<Bn256>::new(k, rng);
+
+        let path = Path::new("params_evm");
+        let params = if path.exists() {
+            let file = File::open(path).unwrap();
+            Params::<G1Affine>::read(file).unwrap()
+        } else {
+            let params = Setup::<Bn256>::new(k, rng);
+            let mut file = File::create(path).unwrap();
+            params.write(&mut file).unwrap();
+            params
+        };
+
         let verifier_params =
             Setup::<Bn256>::verifier_params(&params, public_inputs_size)
                 .unwrap();

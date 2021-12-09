@@ -1162,6 +1162,7 @@ mod tests {
     use bus_mapping::mock;
 
     use bus_mapping::operation::{MemoryOp, Operation, StackOp, StorageOp, RW};
+    use halo2::poly::commitment::Params;
     use halo2::{
         circuit::{Layouter, SimpleFloorPlanner},
         dev::{
@@ -2008,8 +2009,11 @@ mod tests {
         use halo2::transcript::{Blake2bRead, Blake2bWrite, Challenge255};
         use halo2::{plonk::*, poly::commitment::Setup};
         use pairing::bn256::Bn256;
+        use pairing::bn256::G1Affine;
         use rand::SeedableRng;
         use rand_xorshift::XorShiftRng;
+        use std::fs::File;
+        use std::path::Path;
 
         const DEGREE: u32 = 22;
         const MEMORY_ROWS_MAX: usize = 1 << (DEGREE - 2);
@@ -2091,7 +2095,18 @@ mod tests {
         let setup_message =
             format!("Setup generation with degree = {}", DEGREE);
         let start1 = start_timer!(|| setup_message);
-        let params = Setup::<Bn256>::new(k, rng);
+
+        let path = Path::new("params_state");
+        let params = if path.exists() {
+            let file = File::open(path).unwrap();
+            Params::<G1Affine>::read(file).unwrap()
+        } else {
+            let params = Setup::<Bn256>::new(k, rng);
+            let mut file = File::create(path).unwrap();
+            params.write(&mut file).unwrap();
+            params
+        };
+
         let verifier_params =
             Setup::<Bn256>::verifier_params(&params, public_inputs_size)
                 .unwrap();
